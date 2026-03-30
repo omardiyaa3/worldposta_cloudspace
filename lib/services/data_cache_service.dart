@@ -1,0 +1,111 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import '../models/nc_file.dart';
+import 'auth_service.dart';
+import 'webdav_service.dart';
+
+class DataCacheService extends ChangeNotifier {
+  final AuthService _auth;
+  late final WebDavService _webdav;
+  Timer? _refreshTimer;
+
+  // Cached data
+  List<NcFile> rootFiles = [];
+  List<NcFile> recentFiles = [];
+  List<NcFile> sharedWithMe = [];
+  List<NcFile> sharedByMe = [];
+  List<NcFile> starredFiles = [];
+  List<NcFile> trashFiles = [];
+  Map<String, dynamic> quota = {};
+  bool isFirstLoad = true;
+  bool isRefreshing = false;
+
+  // Per-path cache for browsing folders
+  final Map<String, List<NcFile>> _folderCache = {};
+
+  DataCacheService(this._auth) {
+    _webdav = WebDavService(_auth);
+  }
+
+  Future<void> init() async {
+    await _loadAll();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadAll());
+  }
+
+  Future<void> refresh() async {
+    isRefreshing = true;
+    notifyListeners();
+    _folderCache.clear();
+    await _loadAll();
+    isRefreshing = false;
+    notifyListeners();
+  }
+
+  Future<void> _loadAll() async {
+    try {
+      final results = await Future.wait([
+        _webdav.listFiles('/'),         // 0
+        _webdav.getQuota(),             // 1
+        _webdav.listRecent(),           // 2
+        _webdav.listSharedWithMe(),     // 3
+        _webdav.listSharedByMe(),       // 4
+        _webdav.listFavorites(),        // 5
+        _webdav.listTrash(),            // 6
+      ]);
+
+      rootFiles = results[0] as List<NcFile>;
+      quota = results[1] as Map<String, dynamic>;
+      recentFiles = results[2] as List<NcFile>;
+      sharedWithMe = results[3] as List<NcFile>;
+      sharedByMe = results[4] as List<NcFile>;
+      starredFiles = results[5] as List<NcFile>;
+      trashFiles = results[6] as List<NcFile>;
+
+      // Also store root in folder cache
+      _folderCache['/'] = rootFiles;
+
+      isFirstLoad = false;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('DataCacheService._loadAll error: $e');
+      // On first load failure, still mark as done so UI isn't stuck
+      if (isFirstLoad) {
+        isFirstLoad = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<List<NcFile>> getFolder(String path) async {
+    if (_folderCache.containsKey(path)) {
+      // Return cached data immediately, refresh in background
+      _refreshFolder(path);
+      return _folderCache[path]!;
+    }
+    // Not cached yet — fetch and cache
+    final files = await _webdav.listFiles(path);
+    _folderCache[path] = files;
+    return files;
+  }
+
+  Future<void> _refreshFolder(String path) async {
+    try {
+      final files = await _webdav.listFiles(path);
+      _folderCache[path] = files;
+      if (path == '/') {
+        rootFiles = files;
+      }
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  void clearFolderCache(String path) {
+    _folderCache.remove(path);
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+}
