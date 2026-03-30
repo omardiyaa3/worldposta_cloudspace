@@ -11,6 +11,7 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart' as inapp;
+import 'package:webview_windows/webview_windows.dart' as winwv;
 import '../../config/theme.dart';
 import '../../models/nc_file.dart';
 import '../../services/auth_service.dart';
@@ -821,8 +822,13 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       }, 1000);
     ''';
 
-    // Windows/Android/Linux: use InAppWebView
-    if (Platform.isWindows || Platform.isAndroid || Platform.isLinux) {
+    // Windows: use webview_windows (InAppWebView broken on Windows)
+    if (Platform.isWindows) {
+      return _buildWindowsWebView(auth, sessionUrl, targetUrl, hideJs);
+    }
+
+    // Android/Linux: use InAppWebView
+    if (Platform.isAndroid || Platform.isLinux) {
       return _buildInAppWebViewer(auth, sessionUrl, targetUrl, hideJs);
     }
 
@@ -891,19 +897,101 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Widget _buildInAppWebViewer(AuthService auth, String sessionUrl, String targetUrl, String hideJs) {
-    // TEST: Load google.com first to verify InAppWebView works on Windows
-    // If you see Google, the plugin works and we just need to fix the auth
-    // If you see nothing, the plugin is broken on Windows
-    return SizedBox.expand(
-      child: inapp.InAppWebView(
-        key: UniqueKey(),
-        initialUrlRequest: inapp.URLRequest(
-          url: inapp.WebUri('https://www.google.com'),
-        ),
-        initialSettings: inapp.InAppWebViewSettings(
-          javaScriptEnabled: true,
-        ),
+    bool sessionDone = false;
+    bool hideDone = false;
+    return inapp.InAppWebView(
+      initialUrlRequest: inapp.URLRequest(
+        url: inapp.WebUri(sessionUrl),
+        headers: {'Authorization': auth.basicAuth},
       ),
+      initialSettings: inapp.InAppWebViewSettings(
+        javaScriptEnabled: true,
+        javaScriptCanOpenWindowsAutomatically: true,
+      ),
+      onLoadStop: (controller, url) async {
+        if (!sessionDone) {
+          sessionDone = true;
+          await controller.loadUrl(urlRequest: inapp.URLRequest(url: inapp.WebUri(targetUrl)));
+          return;
+        }
+        if (!hideDone) {
+          hideDone = true;
+          await controller.evaluateJavascript(source: hideJs);
+        }
+      },
+      onReceivedHttpAuthRequest: (controller, challenge) async {
+        return inapp.HttpAuthResponse(
+          username: auth.username ?? '',
+          password: auth.appPassword ?? '',
+          action: inapp.HttpAuthResponseAction.PROCEED,
+        );
+      },
+      onReceivedServerTrustAuthRequest: (controller, challenge) async {
+        return inapp.ServerTrustAuthResponse(
+          action: inapp.ServerTrustAuthResponseAction.PROCEED,
+        );
+      },
+    );
+  }
+
+  Widget _buildWindowsWebView(AuthService auth, String sessionUrl, String targetUrl, String hideJs) {
+    final controller = winwv.WebviewController();
+    final isReady = ValueNotifier(false);
+    final statusMsg = ValueNotifier('Loading...');
+
+    final authedSessionUri = Uri.parse(sessionUrl).replace(
+      userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
+    );
+
+    () async {
+      try {
+        await controller.initialize();
+        statusMsg.value = 'Connecting...';
+
+        // Load session URL with credentials to establish auth
+        await controller.loadUrl(authedSessionUri.toString());
+        await Future.delayed(const Duration(seconds: 3));
+
+        // Now load the actual file
+        statusMsg.value = 'Opening document...';
+        await controller.loadUrl(targetUrl);
+
+        // Wait for it to load then hide Nextcloud chrome
+        await Future.delayed(const Duration(seconds: 3));
+        await controller.executeScript(hideJs);
+        isReady.value = true;
+      } catch (e) {
+        statusMsg.value = 'Error: $e';
+        debugPrint('Windows WebView error: $e');
+      }
+    }();
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: isReady,
+      builder: (context, ready, _) {
+        return Stack(
+          children: [
+            winwv.Webview(controller),
+            if (!ready)
+              Container(
+                color: AppColors.white,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(color: AppColors.green700),
+                      const SizedBox(height: 16),
+                      ValueListenableBuilder<String>(
+                        valueListenable: statusMsg,
+                        builder: (_, msg, __) => Text(msg, style: const TextStyle(color: AppColors.body, fontSize: 14)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
