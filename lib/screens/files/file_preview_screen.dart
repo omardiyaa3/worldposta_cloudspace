@@ -867,9 +867,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       builder: (context, show, _) {
         return Stack(
           children: [
-            Opacity(
-              opacity: show ? 1.0 : 0.0,
-              child: inapp.InAppWebView(
+            inapp.InAppWebView(
               initialUrlRequest: inapp.URLRequest(
                 url: authedSessionUri,
                 headers: {
@@ -878,7 +876,6 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
               ),
               initialSettings: options,
               onLoadStop: (controller, url) async {
-                final urlStr = url?.toString() ?? '';
                 if (!sessionEstablished) {
                   sessionEstablished = true;
                   await controller.loadUrl(
@@ -886,17 +883,14 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                   );
                   return;
                 }
-                // Only run hideJs once and show webview once
+                // Run hide JS and show webview ONCE only
                 if (!fileLoaded) {
+                  fileLoaded = true;
+                  await Future.delayed(const Duration(seconds: 2));
                   await controller.evaluateJavascript(source: hideJs);
-                  if (urlStr.contains('openfile') || urlStr.contains('richdocuments') || urlStr.contains('onlyoffice') || urlStr.contains('wopi')) {
-                    // Wait for editor to fully render
-                    await Future.delayed(const Duration(seconds: 4));
-                    await controller.evaluateJavascript(source: hideJs);
-                    fileLoaded = true;
-                    showWebView.value = true;
-                  }
+                  showWebView.value = true;
                 }
+                // Never run anything again after fileLoaded = true
               },
               onReceivedHttpAuthRequest: (controller, challenge) async {
                 return inapp.HttpAuthResponse(
@@ -905,7 +899,6 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                   action: inapp.HttpAuthResponseAction.PROCEED,
                 );
               },
-            ),
             ),
             if (!show)
               Container(
