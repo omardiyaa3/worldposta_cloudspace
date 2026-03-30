@@ -779,6 +779,12 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       }, 1000);
     ''';
 
+    // Use InAppWebView on Windows/Android (better WebView2 support), webview_flutter on macOS/iOS
+    if (Platform.isWindows || Platform.isAndroid || Platform.isLinux) {
+      return _buildInAppWebViewer(auth, sessionUrl, targetUrl, hideJs);
+    }
+
+    // macOS / iOS — use webview_flutter
     final authedSessionUrl = Uri.parse(sessionUrl).replace(
       userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
     );
@@ -788,9 +794,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     bool _fileLoaded = false;
     final ValueNotifier<bool> _showWebView = ValueNotifier(false);
 
-    controller = WebViewController.fromPlatformCreationParams(
-      PlatformWebViewControllerCreationParams(),
-    )
+    controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
       ..setNavigationDelegate(NavigationDelegate(
@@ -800,12 +804,14 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
             controller.loadRequest(Uri.parse(targetUrl));
             return;
           }
-          // Disable pinch zoom
-          controller.runJavaScript('''
-            var meta = document.querySelector('meta[name="viewport"]');
-            if (!meta) { meta = document.createElement("meta"); meta.name = "viewport"; document.head.appendChild(meta); }
-            meta.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
-          ''');
+          // Disable pinch zoom on iOS
+          if (Platform.isIOS) {
+            controller.runJavaScript('''
+              var meta = document.querySelector('meta[name="viewport"]');
+              if (!meta) { meta = document.createElement("meta"); meta.name = "viewport"; document.head.appendChild(meta); }
+              meta.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+            ''');
+          }
           controller.runJavaScript(hideJs);
           if (!_fileLoaded) {
             _fileLoaded = true;
@@ -849,13 +855,9 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
 
     final options = inapp.InAppWebViewSettings(
       javaScriptEnabled: true,
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-      allowsInlineMediaPlayback: true,
-      allowsBackForwardNavigationGestures: false,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       javaScriptCanOpenWindowsAutomatically: true,
       supportMultipleWindows: false,
-      // These are key for proper keyboard handling in iframes
-      allowsLinkPreview: false,
     );
 
     final authedSessionUri = inapp.WebUri(sessionUrl);
