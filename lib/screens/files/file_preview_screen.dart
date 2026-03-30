@@ -779,12 +779,12 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       }, 1000);
     ''';
 
-    // Use InAppWebView only on Android/Linux, webview_flutter on macOS/iOS/Windows
-    if (Platform.isAndroid || Platform.isLinux) {
+    // Use InAppWebView on Windows/Android/Linux
+    if (Platform.isWindows || Platform.isAndroid || Platform.isLinux) {
       return _buildInAppWebViewer(auth, sessionUrl, targetUrl, hideJs);
     }
 
-    // macOS / iOS / Windows — use webview_flutter
+    // macOS / iOS — use webview_flutter
     final authedSessionUrl = Uri.parse(sessionUrl).replace(
       userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
     );
@@ -850,71 +850,39 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
 
   Widget _buildInAppWebViewer(AuthService auth, String sessionUrl, String targetUrl, String hideJs) {
     bool sessionEstablished = false;
-    bool fileLoaded = false;
-    final showWebView = ValueNotifier(false);
+    bool hideJsApplied = false;
 
-    final options = inapp.InAppWebViewSettings(
-      javaScriptEnabled: true,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      javaScriptCanOpenWindowsAutomatically: true,
-      supportMultipleWindows: false,
-    );
-
-    final authedSessionUri = inapp.WebUri(sessionUrl);
-
-    return ValueListenableBuilder<bool>(
-      valueListenable: showWebView,
-      builder: (context, show, _) {
-        return Stack(
-          children: [
-            inapp.InAppWebView(
-              initialUrlRequest: inapp.URLRequest(
-                url: authedSessionUri,
-                headers: {
-                  'Authorization': auth.basicAuth,
-                },
-              ),
-              initialSettings: options,
-              onLoadStop: (controller, url) async {
-                if (!sessionEstablished) {
-                  sessionEstablished = true;
-                  await controller.loadUrl(
-                    urlRequest: inapp.URLRequest(url: inapp.WebUri(targetUrl)),
-                  );
-                  return;
-                }
-                // Run hide JS and show webview ONCE only
-                if (!fileLoaded) {
-                  fileLoaded = true;
-                  await Future.delayed(const Duration(seconds: 2));
-                  await controller.evaluateJavascript(source: hideJs);
-                  showWebView.value = true;
-                }
-                // Never run anything again after fileLoaded = true
-              },
-              onReceivedHttpAuthRequest: (controller, challenge) async {
-                return inapp.HttpAuthResponse(
-                  username: auth.username ?? '',
-                  password: auth.appPassword ?? '',
-                  action: inapp.HttpAuthResponseAction.PROCEED,
-                );
-              },
-            ),
-            if (!show)
-              Container(
-                color: AppColors.white,
-                child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(color: AppColors.green700),
-                      SizedBox(height: 16),
-                      Text('Opening document...', style: TextStyle(color: AppColors.body, fontSize: 14)),
-                    ],
-                  ),
-                ),
-              ),
-          ],
+    return inapp.InAppWebView(
+      initialUrlRequest: inapp.URLRequest(
+        url: inapp.WebUri(sessionUrl),
+        headers: {
+          'Authorization': auth.basicAuth,
+        },
+      ),
+      initialSettings: inapp.InAppWebViewSettings(
+        javaScriptEnabled: true,
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        javaScriptCanOpenWindowsAutomatically: true,
+        supportMultipleWindows: false,
+      ),
+      onLoadStop: (controller, url) async {
+        if (!sessionEstablished) {
+          sessionEstablished = true;
+          await controller.loadUrl(
+            urlRequest: inapp.URLRequest(url: inapp.WebUri(targetUrl)),
+          );
+          return;
+        }
+        if (!hideJsApplied) {
+          hideJsApplied = true;
+          await controller.evaluateJavascript(source: hideJs);
+        }
+      },
+      onReceivedHttpAuthRequest: (controller, challenge) async {
+        return inapp.HttpAuthResponse(
+          username: auth.username ?? '',
+          password: auth.appPassword ?? '',
+          action: inapp.HttpAuthResponseAction.PROCEED,
         );
       },
     );
