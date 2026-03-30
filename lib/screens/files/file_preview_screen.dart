@@ -11,6 +11,7 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart' as inapp;
+import 'package:webview_windows/webview_windows.dart' as winwv;
 import '../../config/theme.dart';
 import '../../models/nc_file.dart';
 import '../../services/auth_service.dart';
@@ -849,79 +850,110 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Widget _buildInAppWebViewer(AuthService auth, String sessionUrl, String targetUrl, String hideJs) {
-    final debugLog = ValueNotifier<String>('Starting...');
+    if (Platform.isWindows) {
+      return _buildWindowsWebView(auth, sessionUrl, targetUrl, hideJs);
+    }
+    // Android/Linux — use InAppWebView
     bool sessionDone = false;
     bool hideDone = false;
+    return inapp.InAppWebView(
+      initialUrlRequest: inapp.URLRequest(
+        url: inapp.WebUri(sessionUrl),
+        headers: {'Authorization': auth.basicAuth},
+      ),
+      initialSettings: inapp.InAppWebViewSettings(
+        javaScriptEnabled: true,
+        javaScriptCanOpenWindowsAutomatically: true,
+        supportMultipleWindows: false,
+      ),
+      onLoadStop: (controller, url) async {
+        if (!sessionDone) {
+          sessionDone = true;
+          await controller.loadUrl(urlRequest: inapp.URLRequest(url: inapp.WebUri(targetUrl)));
+          return;
+        }
+        if (!hideDone) {
+          hideDone = true;
+          await controller.evaluateJavascript(source: hideJs);
+        }
+      },
+      onReceivedHttpAuthRequest: (controller, challenge) async {
+        return inapp.HttpAuthResponse(
+          username: auth.username ?? '',
+          password: auth.appPassword ?? '',
+          action: inapp.HttpAuthResponseAction.PROCEED,
+        );
+      },
+      onReceivedServerTrustAuthRequest: (controller, challenge) async {
+        return inapp.ServerTrustAuthResponse(
+          action: inapp.ServerTrustAuthResponseAction.PROCEED,
+        );
+      },
+    );
+  }
 
-    return Stack(
-      children: [
-        inapp.InAppWebView(
-          initialUrlRequest: inapp.URLRequest(
-            url: inapp.WebUri(sessionUrl),
-            headers: {'Authorization': auth.basicAuth},
-          ),
-          initialSettings: inapp.InAppWebViewSettings(
-            javaScriptEnabled: true,
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            javaScriptCanOpenWindowsAutomatically: true,
-            supportMultipleWindows: false,
-          ),
-          onWebViewCreated: (controller) {
-            debugLog.value = 'WebView created, loading session URL...';
-          },
-          onLoadStart: (controller, url) {
-            debugLog.value = 'Loading: ${url?.toString().substring(0, 80) ?? "?"}...';
-          },
-          onLoadStop: (controller, url) async {
-            final urlStr = url?.toString() ?? '';
-            debugLog.value = 'Loaded: ${urlStr.substring(0, urlStr.length > 80 ? 80 : urlStr.length)}';
-            if (!sessionDone) {
-              sessionDone = true;
-              debugLog.value = 'Session OK, loading file...';
-              await controller.loadUrl(
-                urlRequest: inapp.URLRequest(url: inapp.WebUri(targetUrl)),
-              );
-              return;
-            }
-            if (!hideDone) {
-              hideDone = true;
-              await controller.evaluateJavascript(source: hideJs);
-              debugLog.value = 'File loaded!';
-            }
-          },
-          onLoadError: (controller, url, code, message) {
-            debugLog.value = 'ERROR: $code $message';
-          },
-          onReceivedHttpAuthRequest: (controller, challenge) async {
-            debugLog.value = 'Auth requested, providing credentials...';
-            return inapp.HttpAuthResponse(
-              username: auth.username ?? '',
-              password: auth.appPassword ?? '',
-              action: inapp.HttpAuthResponseAction.PROCEED,
-            );
-          },
-          onReceivedServerTrustAuthRequest: (controller, challenge) async {
-            debugLog.value = 'SSL challenge, accepting...';
-            return inapp.ServerTrustAuthResponse(
-              action: inapp.ServerTrustAuthResponseAction.PROCEED,
-            );
-          },
-        ),
-        // Debug overlay — shows what's happening
-        Positioned(
-          bottom: 0,
-          left: 0,
-          right: 0,
-          child: ValueListenableBuilder<String>(
-            valueListenable: debugLog,
-            builder: (_, msg, __) => Container(
-              color: Colors.black87,
-              padding: const EdgeInsets.all(8),
-              child: Text(msg, style: const TextStyle(color: Colors.white, fontSize: 11)),
-            ),
-          ),
-        ),
-      ],
+  Widget _buildWindowsWebView(AuthService auth, String sessionUrl, String targetUrl, String hideJs) {
+    final controller = winwv.WebviewController();
+    final isReady = ValueNotifier(false);
+    final status = ValueNotifier('Initializing...');
+
+    () async {
+      try {
+        await controller.initialize();
+        status.value = 'Loading...';
+
+        // Set user agent
+        await controller.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+        // Load session URL with credentials in URL
+        final sessUri = Uri.parse(sessionUrl).replace(
+          userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
+        );
+        await controller.loadUrl(sessUri.toString());
+
+        // Wait for it to load
+        await controller.loadingState.firstWhere((state) => state == winwv.LoadingState.navigationCompleted);
+        status.value = 'Session established, opening file...';
+
+        // Now load the target file
+        await controller.loadUrl(targetUrl);
+        await controller.loadingState.firstWhere((state) => state == winwv.LoadingState.navigationCompleted);
+
+        // Hide header/sidebar
+        await controller.executeScript(hideJs);
+        status.value = 'Ready';
+        isReady.value = true;
+      } catch (e) {
+        status.value = 'Error: $e';
+      }
+    }();
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: isReady,
+      builder: (context, ready, _) {
+        return Stack(
+          children: [
+            winwv.Webview(controller),
+            if (!ready)
+              Container(
+                color: AppColors.white,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(color: AppColors.green700),
+                      const SizedBox(height: 16),
+                      ValueListenableBuilder<String>(
+                        valueListenable: status,
+                        builder: (_, msg, __) => Text(msg, style: const TextStyle(color: AppColors.body, fontSize: 14)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
