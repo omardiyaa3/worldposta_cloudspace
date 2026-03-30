@@ -50,11 +50,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     // Office docs: on Windows open in Edge app mode, others use in-app webview
     if (_isOfficeDoc || _isSpreadsheet || _isPresentation) {
       if (Platform.isWindows) {
-        await _launchWindowsEditor();
-        if (mounted) {
-          setState(() => _isLoading = false);
-          Navigator.of(context).pop();
-        }
+        if (mounted) setState(() => _isLoading = false);
         return;
       }
       if (mounted) setState(() => _isLoading = false);
@@ -895,61 +891,18 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Widget _buildInAppWebViewer(AuthService auth, String sessionUrl, String targetUrl, String hideJs) {
-    bool sessionDone = false;
-    bool hideDone = false;
-
-    // Embed credentials in session URL
-    final authedSessionUri = Uri.parse(sessionUrl).replace(
-      userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
-    );
-
+    // TEST: Load google.com first to verify InAppWebView works on Windows
+    // If you see Google, the plugin works and we just need to fix the auth
+    // If you see nothing, the plugin is broken on Windows
     return SizedBox.expand(
       child: inapp.InAppWebView(
         key: UniqueKey(),
         initialUrlRequest: inapp.URLRequest(
-          url: inapp.WebUri(authedSessionUri.toString()),
+          url: inapp.WebUri('https://www.google.com'),
         ),
         initialSettings: inapp.InAppWebViewSettings(
           javaScriptEnabled: true,
-          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          javaScriptCanOpenWindowsAutomatically: true,
-          supportMultipleWindows: false,
-          transparentBackground: false,
         ),
-        onWebViewCreated: (controller) {
-          debugPrint('InAppWebView created successfully');
-        },
-        onLoadStart: (controller, url) {
-          debugPrint('InAppWebView loading: $url');
-        },
-        onLoadStop: (controller, url) async {
-          debugPrint('InAppWebView loaded: $url');
-          if (!sessionDone) {
-            sessionDone = true;
-            await controller.loadUrl(urlRequest: inapp.URLRequest(url: inapp.WebUri(targetUrl)));
-            return;
-          }
-          if (!hideDone) {
-            hideDone = true;
-            await controller.evaluateJavascript(source: hideJs);
-          }
-        },
-        onLoadError: (controller, url, code, message) {
-          debugPrint('InAppWebView error: $code $message $url');
-        },
-        onReceivedHttpAuthRequest: (controller, challenge) async {
-          debugPrint('InAppWebView auth request');
-          return inapp.HttpAuthResponse(
-            username: auth.username ?? '',
-            password: auth.appPassword ?? '',
-            action: inapp.HttpAuthResponseAction.PROCEED,
-          );
-        },
-        onReceivedServerTrustAuthRequest: (controller, challenge) async {
-          return inapp.ServerTrustAuthResponse(
-            action: inapp.ServerTrustAuthResponseAction.PROCEED,
-          );
-        },
       ),
     );
   }
