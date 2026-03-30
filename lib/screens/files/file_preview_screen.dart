@@ -852,6 +852,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     bool sessionEstablished = false;
     bool fileLoaded = false;
     final showWebView = ValueNotifier(false);
+    final hasError = ValueNotifier(false);
 
     final options = inapp.InAppWebViewSettings(
       javaScriptEnabled: true,
@@ -863,6 +864,30 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     final authedSessionUri = inapp.WebUri(sessionUrl);
 
     return ValueListenableBuilder<bool>(
+      valueListenable: hasError,
+      builder: (context, error, _) {
+        if (error) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: AppColors.filePdf),
+                const SizedBox(height: 16),
+                const Text('Could not open document editor', style: TextStyle(fontSize: 16, color: AppColors.heading)),
+                const SizedBox(height: 8),
+                const Text('WebView2 runtime may not be installed.', style: TextStyle(fontSize: 13, color: AppColors.body)),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: _openInBrowser,
+                  icon: const Icon(Icons.open_in_browser, size: 18),
+                  label: const Text('Open in Browser'),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.green800, foregroundColor: AppColors.white),
+                ),
+              ],
+            ),
+          );
+        }
+        return ValueListenableBuilder<bool>(
       valueListenable: showWebView,
       builder: (context, show, _) {
         return Stack(
@@ -896,6 +921,13 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                   action: inapp.HttpAuthResponseAction.PROCEED,
                 );
               },
+              onLoadError: (controller, url, code, message) {
+                debugPrint('WebView load error: $code $message');
+                hasError.value = true;
+              },
+              onConsoleMessage: (controller, consoleMessage) {
+                debugPrint('WebView console: ${consoleMessage.message}');
+              },
             ),
             if (!show)
               Container(
@@ -913,6 +945,8 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
               ),
           ],
         );
+      },
+    );
       },
     );
   }

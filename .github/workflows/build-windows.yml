@@ -22,6 +22,10 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
+      - name: Download WebView2 bootstrapper
+        run: |
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile "build/windows/x64/runner/Release/MicrosoftEdgeWebview2Setup.exe"
+
       - name: Create installer archive
         run: |
           cd build/windows/x64/runner/Release
