@@ -47,7 +47,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Future<void> _loadFile() async {
-    // Office docs open via Nextcloud web editor
+    // Office docs open via webview
     if (_isOfficeDoc || _isSpreadsheet || _isPresentation) {
       if (mounted) setState(() => _isLoading = false);
       return;
@@ -779,13 +779,8 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       }, 1000);
     ''';
 
-    // Windows: open in Edge app mode (chromeless window) — InAppWebView doesn't work on Windows
-    if (Platform.isWindows) {
-      return _buildWindowsEdgeView(auth, targetUrl);
-    }
-
-    // Android/Linux: use InAppWebView
-    if (Platform.isAndroid || Platform.isLinux) {
+    // Windows/Android/Linux: use InAppWebView
+    if (Platform.isWindows || Platform.isAndroid || Platform.isLinux) {
       return _buildInAppWebViewer(auth, sessionUrl, targetUrl, hideJs);
     }
 
@@ -857,109 +852,58 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     bool sessionDone = false;
     bool hideDone = false;
 
-    return inapp.InAppWebView(
-      initialUrlRequest: inapp.URLRequest(
-        url: inapp.WebUri(sessionUrl),
-        headers: {'Authorization': auth.basicAuth},
-      ),
-      initialSettings: inapp.InAppWebViewSettings(
-        javaScriptEnabled: true,
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        javaScriptCanOpenWindowsAutomatically: true,
-        supportMultipleWindows: false,
-      ),
-      onLoadStop: (controller, url) async {
-        if (!sessionDone) {
-          sessionDone = true;
-          await controller.loadUrl(urlRequest: inapp.URLRequest(url: inapp.WebUri(targetUrl)));
-          return;
-        }
-        if (!hideDone) {
-          hideDone = true;
-          await controller.evaluateJavascript(source: hideJs);
-        }
-      },
-      onReceivedHttpAuthRequest: (controller, challenge) async {
-        return inapp.HttpAuthResponse(
-          username: auth.username ?? '',
-          password: auth.appPassword ?? '',
-          action: inapp.HttpAuthResponseAction.PROCEED,
-        );
-      },
-      onReceivedServerTrustAuthRequest: (controller, challenge) async {
-        return inapp.ServerTrustAuthResponse(
-          action: inapp.ServerTrustAuthResponseAction.PROCEED,
-        );
-      },
-    );
-  }
-
-  Widget _buildWindowsEdgeView(AuthService auth, String targetUrl) {
-    // Launch Edge in app mode — looks like a native window, no browser chrome
-    final uri = Uri.parse(targetUrl);
-    final authedUri = uri.replace(
+    // Embed credentials in session URL
+    final authedSessionUri = Uri.parse(sessionUrl).replace(
       userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
     );
 
-    // Try to find Edge, then Chrome, then fallback
-    () async {
-      try {
-        // Try Edge first (installed on all Windows 10/11)
-        final edgePaths = [
-          'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-          'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-        ];
-        String? browserPath;
-        for (final p in edgePaths) {
-          if (await File(p).exists()) { browserPath = p; break; }
-        }
-        if (browserPath == null) {
-          // Try Chrome
-          final chromePaths = [
-            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-          ];
-          for (final p in chromePaths) {
-            if (await File(p).exists()) { browserPath = p; break; }
+    return SizedBox.expand(
+      child: inapp.InAppWebView(
+        key: UniqueKey(),
+        initialUrlRequest: inapp.URLRequest(
+          url: inapp.WebUri(authedSessionUri.toString()),
+        ),
+        initialSettings: inapp.InAppWebViewSettings(
+          javaScriptEnabled: true,
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          javaScriptCanOpenWindowsAutomatically: true,
+          supportMultipleWindows: false,
+          transparentBackground: false,
+        ),
+        onWebViewCreated: (controller) {
+          debugPrint('InAppWebView created successfully');
+        },
+        onLoadStart: (controller, url) {
+          debugPrint('InAppWebView loading: $url');
+        },
+        onLoadStop: (controller, url) async {
+          debugPrint('InAppWebView loaded: $url');
+          if (!sessionDone) {
+            sessionDone = true;
+            await controller.loadUrl(urlRequest: inapp.URLRequest(url: inapp.WebUri(targetUrl)));
+            return;
           }
-        }
-
-        if (browserPath != null) {
-          await Process.start(browserPath, [
-            '--app=${authedUri.toString()}',
-            '--window-size=1200,800',
-            '--disable-extensions',
-          ]);
-        } else {
-          // Fallback to default browser
-          await launchUrl(authedUri, mode: LaunchMode.externalApplication);
-        }
-      } catch (e) {
-        debugPrint('Windows Edge launch failed: $e');
-      }
-    }();
-
-    // Show a placeholder in the app
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppColors.greenActiveBg,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(Icons.edit_document, size: 36, color: AppColors.green800),
-          ),
-          const SizedBox(height: 20),
-          Text(widget.file.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.heading)),
-          const SizedBox(height: 8),
-          const Text('Editing in a separate window', style: TextStyle(fontSize: 14, color: AppColors.body)),
-          const SizedBox(height: 4),
-          const Text('Close the editor window when done', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-        ],
+          if (!hideDone) {
+            hideDone = true;
+            await controller.evaluateJavascript(source: hideJs);
+          }
+        },
+        onLoadError: (controller, url, code, message) {
+          debugPrint('InAppWebView error: $code $message $url');
+        },
+        onReceivedHttpAuthRequest: (controller, challenge) async {
+          debugPrint('InAppWebView auth request');
+          return inapp.HttpAuthResponse(
+            username: auth.username ?? '',
+            password: auth.appPassword ?? '',
+            action: inapp.HttpAuthResponseAction.PROCEED,
+          );
+        },
+        onReceivedServerTrustAuthRequest: (controller, challenge) async {
+          return inapp.ServerTrustAuthResponse(
+            action: inapp.ServerTrustAuthResponseAction.PROCEED,
+          );
+        },
       ),
     );
   }
