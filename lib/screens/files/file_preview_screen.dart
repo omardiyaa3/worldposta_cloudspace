@@ -867,7 +867,9 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       builder: (context, show, _) {
         return Stack(
           children: [
-            inapp.InAppWebView(
+            Opacity(
+              opacity: show ? 1.0 : 0.0,
+              child: inapp.InAppWebView(
               initialUrlRequest: inapp.URLRequest(
                 url: authedSessionUri,
                 headers: {
@@ -885,12 +887,15 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                   return;
                 }
                 // Only run hideJs once and show webview once
-                if (!fileLoaded && (urlStr.contains('openfile') || urlStr.contains('apps/files') || urlStr.contains('richdocuments') || urlStr.contains('onlyoffice'))) {
+                if (!fileLoaded) {
                   await controller.evaluateJavascript(source: hideJs);
-                  // Delay slightly to let the editor render before showing
-                  await Future.delayed(const Duration(milliseconds: 1500));
-                  fileLoaded = true;
-                  showWebView.value = true;
+                  if (urlStr.contains('openfile') || urlStr.contains('richdocuments') || urlStr.contains('onlyoffice') || urlStr.contains('wopi')) {
+                    // Wait for editor to fully render
+                    await Future.delayed(const Duration(seconds: 4));
+                    await controller.evaluateJavascript(source: hideJs);
+                    fileLoaded = true;
+                    showWebView.value = true;
+                  }
                 }
               },
               onReceivedHttpAuthRequest: (controller, challenge) async {
@@ -900,6 +905,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                   action: inapp.HttpAuthResponseAction.PROCEED,
                 );
               },
+            ),
             ),
             if (!show)
               Container(
