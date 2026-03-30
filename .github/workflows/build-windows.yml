@@ -64,9 +64,23 @@ jobs:
           Name: "{autodesktop}\CloudSpace"; Filename: "{app}\CloudSpace.exe"
 
           [Run]
-          Filename: "{app}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated skipifsilent
-          Filename: "{app}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Installing WebView2 Runtime..."; Flags: waituntilterminated skipifsilent
+          Filename: "{app}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated skipifsilent; Check: not VCRedistInstalled
+          Filename: "{app}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Installing WebView2 Runtime..."; Flags: waituntilterminated skipifsilent; Check: not WebView2Installed
           Filename: "{app}\CloudSpace.exe"; Description: "Launch CloudSpace"; Flags: nowait postinstall skipifsilent
+
+          [Code]
+          function VCRedistInstalled: Boolean;
+          begin
+            Result := FileExists(ExpandConstant('{sys}\msvcp140.dll'));
+          end;
+
+          function WebView2Installed: Boolean;
+          var
+            Version: String;
+          begin
+            Result := RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version) or
+                      RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version);
+          end;
           "@ | Out-File -FilePath "installer.iss" -Encoding UTF8
 
       - name: Build installer with Inno Setup
@@ -78,13 +92,3 @@ jobs:
         with:
           name: CloudSpace-Windows-Setup
           path: CloudSpace-Setup.exe
-
-      - name: Upload portable zip
-        run: |
-          cd build/windows/x64/runner/Release
-          Compress-Archive -Path * -DestinationPath CloudSpace-Windows-Portable.zip
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: CloudSpace-Windows-Portable
-          path: build/windows/x64/runner/Release/CloudSpace-Windows-Portable.zip

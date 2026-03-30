@@ -921,13 +921,6 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                   action: inapp.HttpAuthResponseAction.PROCEED,
                 );
               },
-              onLoadError: (controller, url, code, message) {
-                debugPrint('WebView load error: $code $message');
-                hasError.value = true;
-              },
-              onConsoleMessage: (controller, consoleMessage) {
-                debugPrint('WebView console: ${consoleMessage.message}');
-              },
             ),
             if (!show)
               Container(
