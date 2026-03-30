@@ -876,6 +876,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
               ),
               initialSettings: options,
               onLoadStop: (controller, url) async {
+                final urlStr = url?.toString() ?? '';
                 if (!sessionEstablished) {
                   sessionEstablished = true;
                   await controller.loadUrl(
@@ -883,8 +884,11 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                   );
                   return;
                 }
-                await controller.evaluateJavascript(source: hideJs);
-                if (!fileLoaded) {
+                // Only run hideJs once and show webview once
+                if (!fileLoaded && (urlStr.contains('openfile') || urlStr.contains('apps/files') || urlStr.contains('richdocuments') || urlStr.contains('onlyoffice'))) {
+                  await controller.evaluateJavascript(source: hideJs);
+                  // Delay slightly to let the editor render before showing
+                  await Future.delayed(const Duration(milliseconds: 1500));
                   fileLoaded = true;
                   showWebView.value = true;
                 }

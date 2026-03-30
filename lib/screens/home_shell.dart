@@ -345,6 +345,11 @@ class _HomeShellState extends State<HomeShell> {
                     displayName: auth.displayName,
                     onProfileTap: () => _showProfileMenu(context),
                     onSettingsTap: () => setState(() => _currentRoute = 'settings'),
+                    onRefreshTap: () {
+                      try {
+                        context.read<DataCacheService>().refresh();
+                      } catch (_) {}
+                    },
                     onSearch: (query) {
                       setState(() {
                         _searchQuery = query;

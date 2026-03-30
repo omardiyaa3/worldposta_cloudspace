@@ -7,6 +7,7 @@ class TopBar extends StatefulWidget {
   final VoidCallback? onNotificationTap;
   final VoidCallback? onSettingsTap;
   final VoidCallback? onProfileTap;
+  final VoidCallback? onRefreshTap;
   final ValueChanged<String>? onSearch;
 
   const TopBar({
@@ -16,6 +17,7 @@ class TopBar extends StatefulWidget {
     this.onNotificationTap,
     this.onSettingsTap,
     this.onProfileTap,
+    this.onRefreshTap,
     this.onSearch,
   });
 
@@ -131,6 +133,17 @@ class _TopBarState extends State<TopBar> {
           ],
 
           SizedBox(width: isMobile ? 4 : 24),
+
+          // Refresh
+          if (widget.onRefreshTap != null)
+            IconButton(
+              onPressed: widget.onRefreshTap,
+              icon: const Icon(Icons.refresh, color: AppColors.azure47),
+              iconSize: isMobile ? 22 : 24,
+              padding: isMobile ? const EdgeInsets.all(6) : const EdgeInsets.all(8),
+              constraints: isMobile ? const BoxConstraints() : null,
+              tooltip: 'Refresh',
+            ),
 
           // Notification bell
           IconButton(
