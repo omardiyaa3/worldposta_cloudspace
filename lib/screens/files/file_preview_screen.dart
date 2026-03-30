@@ -849,97 +849,33 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Widget _buildInAppWebViewer(AuthService auth, String sessionUrl, String targetUrl, String hideJs) {
-    bool sessionEstablished = false;
-    bool fileLoaded = false;
-    final showWebView = ValueNotifier(false);
-    final hasError = ValueNotifier(false);
+    bool hideApplied = false;
 
-    final options = inapp.InAppWebViewSettings(
-      javaScriptEnabled: true,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      javaScriptCanOpenWindowsAutomatically: true,
-      supportMultipleWindows: false,
-    );
-
-    final authedSessionUri = inapp.WebUri(sessionUrl);
-
-    return ValueListenableBuilder<bool>(
-      valueListenable: hasError,
-      builder: (context, error, _) {
-        if (error) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, size: 48, color: AppColors.filePdf),
-                const SizedBox(height: 16),
-                const Text('Could not open document editor', style: TextStyle(fontSize: 16, color: AppColors.heading)),
-                const SizedBox(height: 8),
-                const Text('WebView2 runtime may not be installed.', style: TextStyle(fontSize: 13, color: AppColors.body)),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: _openInBrowser,
-                  icon: const Icon(Icons.open_in_browser, size: 18),
-                  label: const Text('Open in Browser'),
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.green800, foregroundColor: AppColors.white),
-                ),
-              ],
-            ),
-          );
+    return inapp.InAppWebView(
+      initialUrlRequest: inapp.URLRequest(
+        url: inapp.WebUri(targetUrl),
+        headers: {
+          'Authorization': auth.basicAuth,
+        },
+      ),
+      initialSettings: inapp.InAppWebViewSettings(
+        javaScriptEnabled: true,
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        javaScriptCanOpenWindowsAutomatically: true,
+        supportMultipleWindows: false,
+      ),
+      onLoadStop: (controller, url) async {
+        if (!hideApplied) {
+          hideApplied = true;
+          await controller.evaluateJavascript(source: hideJs);
         }
-        return ValueListenableBuilder<bool>(
-      valueListenable: showWebView,
-      builder: (context, show, _) {
-        return Stack(
-          children: [
-            inapp.InAppWebView(
-              initialUrlRequest: inapp.URLRequest(
-                url: authedSessionUri,
-                headers: {
-                  'Authorization': auth.basicAuth,
-                },
-              ),
-              initialSettings: options,
-              onLoadStop: (controller, url) async {
-                if (!sessionEstablished) {
-                  sessionEstablished = true;
-                  await controller.loadUrl(
-                    urlRequest: inapp.URLRequest(url: inapp.WebUri(targetUrl)),
-                  );
-                  return;
-                }
-                if (!fileLoaded) {
-                  fileLoaded = true;
-                  await controller.evaluateJavascript(source: hideJs);
-                  showWebView.value = true;
-                }
-              },
-              onReceivedHttpAuthRequest: (controller, challenge) async {
-                return inapp.HttpAuthResponse(
-                  username: auth.username ?? '',
-                  password: auth.appPassword ?? '',
-                  action: inapp.HttpAuthResponseAction.PROCEED,
-                );
-              },
-            ),
-            if (!show)
-              Container(
-                color: AppColors.white,
-                child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(color: AppColors.green700),
-                      SizedBox(height: 16),
-                      Text('Opening document...', style: TextStyle(color: AppColors.body, fontSize: 14)),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        );
       },
-    );
+      onReceivedHttpAuthRequest: (controller, challenge) async {
+        return inapp.HttpAuthResponse(
+          username: auth.username ?? '',
+          password: auth.appPassword ?? '',
+          action: inapp.HttpAuthResponseAction.PROCEED,
+        );
       },
     );
   }
