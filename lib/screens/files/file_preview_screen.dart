@@ -779,12 +779,12 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       }, 1000);
     ''';
 
-    // Use InAppWebView on Windows/Android (better WebView2 support), webview_flutter on macOS/iOS
-    if (Platform.isWindows || Platform.isAndroid || Platform.isLinux) {
+    // Use InAppWebView only on Android/Linux, webview_flutter on macOS/iOS/Windows
+    if (Platform.isAndroid || Platform.isLinux) {
       return _buildInAppWebViewer(auth, sessionUrl, targetUrl, hideJs);
     }
 
-    // macOS / iOS — use webview_flutter
+    // macOS / iOS / Windows — use webview_flutter
     final authedSessionUrl = Uri.parse(sessionUrl).replace(
       userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
     );
