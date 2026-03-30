@@ -11,7 +11,6 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart' as inapp;
-import 'package:webview_windows/webview_windows.dart' as winwv;
 import '../../config/theme.dart';
 import '../../models/nc_file.dart';
 import '../../services/auth_service.dart';
@@ -48,7 +47,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Future<void> _loadFile() async {
-    // Office docs open via Nextcloud web editor — no need to download bytes
+    // Office docs open via Nextcloud web editor
     if (_isOfficeDoc || _isSpreadsheet || _isPresentation) {
       if (mounted) setState(() => _isLoading = false);
       return;
@@ -780,8 +779,13 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       }, 1000);
     ''';
 
-    // Use InAppWebView on Windows/Android (better WebView2 support), webview_flutter on macOS/iOS
-    if (Platform.isWindows || Platform.isAndroid || Platform.isLinux) {
+    // Windows: open in Edge app mode (chromeless window) — InAppWebView doesn't work on Windows
+    if (Platform.isWindows) {
+      return _buildWindowsEdgeView(auth, targetUrl);
+    }
+
+    // Android/Linux: use InAppWebView
+    if (Platform.isAndroid || Platform.isLinux) {
       return _buildInAppWebViewer(auth, sessionUrl, targetUrl, hideJs);
     }
 
@@ -850,12 +854,9 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Widget _buildInAppWebViewer(AuthService auth, String sessionUrl, String targetUrl, String hideJs) {
-    if (Platform.isWindows) {
-      return _buildWindowsWebView(auth, sessionUrl, targetUrl, hideJs);
-    }
-    // Android/Linux — use InAppWebView
     bool sessionDone = false;
     bool hideDone = false;
+
     return inapp.InAppWebView(
       initialUrlRequest: inapp.URLRequest(
         url: inapp.WebUri(sessionUrl),
@@ -863,6 +864,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       ),
       initialSettings: inapp.InAppWebViewSettings(
         javaScriptEnabled: true,
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         javaScriptCanOpenWindowsAutomatically: true,
         supportMultipleWindows: false,
       ),
@@ -892,68 +894,73 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     );
   }
 
-  Widget _buildWindowsWebView(AuthService auth, String sessionUrl, String targetUrl, String hideJs) {
-    final controller = winwv.WebviewController();
-    final isReady = ValueNotifier(false);
-    final status = ValueNotifier('Initializing...');
+  Widget _buildWindowsEdgeView(AuthService auth, String targetUrl) {
+    // Launch Edge in app mode — looks like a native window, no browser chrome
+    final uri = Uri.parse(targetUrl);
+    final authedUri = uri.replace(
+      userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
+    );
 
+    // Try to find Edge, then Chrome, then fallback
     () async {
       try {
-        await controller.initialize();
-        status.value = 'Loading...';
+        // Try Edge first (installed on all Windows 10/11)
+        final edgePaths = [
+          'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+          'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+        ];
+        String? browserPath;
+        for (final p in edgePaths) {
+          if (await File(p).exists()) { browserPath = p; break; }
+        }
+        if (browserPath == null) {
+          // Try Chrome
+          final chromePaths = [
+            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+          ];
+          for (final p in chromePaths) {
+            if (await File(p).exists()) { browserPath = p; break; }
+          }
+        }
 
-        // Set user agent
-        await controller.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-        // Load session URL with credentials in URL
-        final sessUri = Uri.parse(sessionUrl).replace(
-          userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
-        );
-        await controller.loadUrl(sessUri.toString());
-
-        // Wait for it to load
-        await controller.loadingState.firstWhere((state) => state == winwv.LoadingState.navigationCompleted);
-        status.value = 'Session established, opening file...';
-
-        // Now load the target file
-        await controller.loadUrl(targetUrl);
-        await controller.loadingState.firstWhere((state) => state == winwv.LoadingState.navigationCompleted);
-
-        // Hide header/sidebar
-        await controller.executeScript(hideJs);
-        status.value = 'Ready';
-        isReady.value = true;
+        if (browserPath != null) {
+          await Process.start(browserPath, [
+            '--app=${authedUri.toString()}',
+            '--window-size=1200,800',
+            '--disable-extensions',
+          ]);
+        } else {
+          // Fallback to default browser
+          await launchUrl(authedUri, mode: LaunchMode.externalApplication);
+        }
       } catch (e) {
-        status.value = 'Error: $e';
+        debugPrint('Windows Edge launch failed: $e');
       }
     }();
 
-    return ValueListenableBuilder<bool>(
-      valueListenable: isReady,
-      builder: (context, ready, _) {
-        return Stack(
-          children: [
-            winwv.Webview(controller),
-            if (!ready)
-              Container(
-                color: AppColors.white,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(color: AppColors.green700),
-                      const SizedBox(height: 16),
-                      ValueListenableBuilder<String>(
-                        valueListenable: status,
-                        builder: (_, msg, __) => Text(msg, style: const TextStyle(color: AppColors.body, fontSize: 14)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
+    // Show a placeholder in the app
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: AppColors.greenActiveBg,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(Icons.edit_document, size: 36, color: AppColors.green800),
+          ),
+          const SizedBox(height: 20),
+          Text(widget.file.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.heading)),
+          const SizedBox(height: 8),
+          const Text('Editing in a separate window', style: TextStyle(fontSize: 14, color: AppColors.body)),
+          const SizedBox(height: 4),
+          const Text('Close the editor window when done', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+        ],
+      ),
     );
   }
 
