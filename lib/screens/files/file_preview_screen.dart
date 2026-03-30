@@ -164,47 +164,11 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     if (fileId == null || fileId.isEmpty) return;
 
     final targetUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
-    final authedUrl = Uri.parse(targetUrl).replace(
+    final authedUri = Uri.parse(targetUrl).replace(
       userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
-    ).toString();
-
-    // Create a local HTML file that loads the editor in a fullscreen iframe
-    // This lets us hide the Nextcloud header, sidebar, X button, etc.
-    final html = '''<!DOCTYPE html>
-<html><head>
-<title>${widget.file.name} - CloudSpace</title>
-<style>
-  * { margin: 0; padding: 0; }
-  body { overflow: hidden; }
-  iframe { width: 100vw; height: 100vh; border: none; }
-</style>
-</head><body>
-<iframe src="$authedUrl" allow="clipboard-read; clipboard-write"></iframe>
-<script>
-  // Hide Nextcloud chrome inside the iframe after it loads
-  document.querySelector('iframe').onload = function() {
-    try {
-      var iDoc = this.contentDocument || this.contentWindow.document;
-      var s = iDoc.createElement('style');
-      s.textContent = '#header, header, .header { display: none !important; } .app-sidebar, #app-sidebar-vue { display: none !important; } .header-close, .icon-close, .menutoggle, .header-menu, .app-menu-main, [class*="action-item"], .button-vue--icon-only { display: none !important; } #content, #content-vue, main, body { padding-top: 0 !important; margin-top: 0 !important; } #content, #content-vue { top: 0 !important; }';
-      iDoc.head.appendChild(s);
-      setTimeout(function() {
-        iDoc.head.appendChild(s.cloneNode(true));
-        var closeBtn = iDoc.querySelector('.app-sidebar__close, .icon-close, [aria-label="Close sidebar"]');
-        if (closeBtn) closeBtn.click();
-      }, 2000);
-    } catch(e) { /* cross-origin, elements hidden by CSS only */ }
-  };
-</script>
-</body></html>''';
+    );
 
     try {
-      // Save HTML to temp file
-      final dir = await getTemporaryDirectory();
-      final htmlFile = File('${dir.path}\\cloudspace_editor.html');
-      await htmlFile.writeAsString(html);
-
-      // Find Edge or Chrome
       final browsers = [
         'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
         'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -218,20 +182,17 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
 
       if (browserPath != null) {
         await Process.start(browserPath, [
-          '--app=file:///${htmlFile.path.replaceAll('\\', '/')}',
+          '--app=${authedUri.toString()}',
           '--window-size=1200,800',
-          '--disable-extensions',
         ]);
       } else {
-        await launchUrl(Uri.parse(authedUrl), mode: LaunchMode.externalApplication);
+        await launchUrl(authedUri, mode: LaunchMode.externalApplication);
       }
 
-      // Wait long enough for the file to load in the editor before returning
-      await Future.delayed(const Duration(seconds: 8));
+      await Future.delayed(const Duration(seconds: 6));
     } catch (e) {
-      debugPrint('Windows editor launch failed: $e');
-      await launchUrl(Uri.parse(authedUrl), mode: LaunchMode.externalApplication);
-      await Future.delayed(const Duration(seconds: 8));
+      await launchUrl(authedUri, mode: LaunchMode.externalApplication);
+      await Future.delayed(const Duration(seconds: 6));
     }
   }
 
