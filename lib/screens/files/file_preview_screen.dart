@@ -47,8 +47,13 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Future<void> _loadFile() async {
-    // Office docs open via webview
+    // Office docs: on Windows open in Edge app mode, others use in-app webview
     if (_isOfficeDoc || _isSpreadsheet || _isPresentation) {
+      if (Platform.isWindows) {
+        await _launchWindowsEditor();
+        if (mounted) Navigator.of(context).pop();
+        return;
+      }
       if (mounted) setState(() => _isLoading = false);
       return;
     }
@@ -148,6 +153,55 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       return '${d.inHours}:$minutes:$seconds';
     }
     return '$minutes:$seconds';
+  }
+
+  Future<void> _launchWindowsEditor() async {
+    final auth = context.read<AuthService>();
+    final fileId = widget.file.fileId;
+    if (fileId == null || fileId.isEmpty) return;
+
+    final targetUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
+    final uri = Uri.parse(targetUrl);
+    final authedUri = uri.replace(
+      userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
+    );
+
+    try {
+      final edgePaths = [
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+      ];
+      String? browserPath;
+      for (final p in edgePaths) {
+        if (await File(p).exists()) { browserPath = p; break; }
+      }
+      if (browserPath == null) {
+        final chromePaths = [
+          'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+          'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        ];
+        for (final p in chromePaths) {
+          if (await File(p).exists()) { browserPath = p; break; }
+        }
+      }
+
+      if (browserPath != null) {
+        await Process.start(browserPath, [
+          '--app=${authedUri.toString()}',
+          '--window-size=1200,800',
+          '--disable-extensions',
+        ]);
+      } else {
+        await launchUrl(authedUri, mode: LaunchMode.externalApplication);
+      }
+
+      // Wait a moment for the browser to open before popping back
+      await Future.delayed(const Duration(seconds: 2));
+    } catch (e) {
+      debugPrint('Windows editor launch failed: $e');
+      await launchUrl(authedUri, mode: LaunchMode.externalApplication);
+      await Future.delayed(const Duration(seconds: 2));
+    }
   }
 
   Future<void> _saveFile() async {
