@@ -33,10 +33,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final totalFiles = allFiles.where((f) => !f.isDirectory).length;
     final totalFolders = allFiles.where((f) => f.isDirectory).length;
 
-    // Calculate storage by category
+    // Calculate storage by category — only from root files to avoid double counting
     int imgSize = 0, vidSize = 0, docSize = 0, otherSize = 0;
-    final allAvailableFiles = <NcFile>{...allFiles, ...cache.recentFiles};
-    for (final f in allAvailableFiles) {
+    for (final f in allFiles) {
       if (f.isDirectory) continue;
       final ext = f.extension.toLowerCase();
       final ct = f.contentType?.toLowerCase() ?? '';
@@ -49,6 +48,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else {
         otherSize += f.size;
       }
+    }
+    // Add folder sizes to "other" since we can't categorize folder contents
+    for (final f in allFiles) {
+      if (f.isDirectory) otherSize += f.size;
+    }
+    // Cap total categories to not exceed used space
+    final categorizedTotal = imgSize + vidSize + docSize + otherSize;
+    final usedBytes = (quota['used'] as int?) ?? 0;
+    if (categorizedTotal > usedBytes && usedBytes > 0) {
+      // Scale down proportionally
+      final scale = usedBytes / categorizedTotal;
+      imgSize = (imgSize * scale).round();
+      vidSize = (vidSize * scale).round();
+      docSize = (docSize * scale).round();
+      otherSize = usedBytes - imgSize - vidSize - docSize;
     }
 
     final used = (quota['used'] as int?) ?? 0;

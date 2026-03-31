@@ -293,7 +293,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
           // Download button
           IconButton(
             icon: const Icon(Icons.download, color: AppColors.azure47),
-            onPressed: _bytes != null ? () => _showDownloadInfo() : null,
+            onPressed: () => _downloadCurrentFile(),
           ),
           // Share / open in browser
           IconButton(
@@ -561,6 +561,56 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _downloadCurrentFile() async {
+    Uint8List bytes;
+    if (_bytes != null) {
+      bytes = _bytes!;
+    } else {
+      // File not loaded (office docs) — download from server
+      try {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Downloading...'), backgroundColor: AppColors.green700, duration: Duration(seconds: 1)),
+          );
+        }
+        final auth = context.read<AuthService>();
+        final webdav = WebDavService(auth);
+        bytes = await webdav.downloadFile(widget.file.path);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Download failed: $e'), backgroundColor: AppColors.filePdf),
+          );
+        }
+        return;
+      }
+    }
+
+    try {
+      final isMobile = Platform.isIOS || Platform.isAndroid;
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save ${widget.file.name}',
+        fileName: widget.file.name,
+        bytes: isMobile ? bytes : null,
+      );
+      if (savePath == null) return;
+      if (!isMobile) {
+        await File(savePath).writeAsBytes(bytes);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${widget.file.name} saved'), backgroundColor: AppColors.green700),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Save failed: $e'), backgroundColor: AppColors.filePdf),
+        );
+      }
+    }
   }
 
   Future<void> _showDownloadInfo() async {
