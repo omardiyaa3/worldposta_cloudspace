@@ -295,6 +295,13 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
             icon: const Icon(Icons.download, color: AppColors.azure47),
             onPressed: () => _downloadCurrentFile(),
           ),
+          // Activity
+          if (widget.file.fileId != null && widget.file.fileId!.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.history, color: AppColors.azure47),
+              tooltip: 'Activity',
+              onPressed: () => _showFileActivity(),
+            ),
           // Share / open in browser
           IconButton(
             icon: const Icon(Icons.open_in_browser, color: AppColors.azure47),
@@ -561,6 +568,93 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _showFileActivity() async {
+    final auth = context.read<AuthService>();
+    final webdav = WebDavService(auth);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) {
+        return FutureBuilder<List<Map<String, dynamic>>>(
+          future: webdav.getFileActivity(widget.file.fileId!),
+          builder: (ctx, snapshot) {
+            return Container(
+              height: MediaQuery.of(ctx).size.height * 0.6,
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.history, color: AppColors.green800, size: 20),
+                      const SizedBox(width: 8),
+                      Text('Activity — ${widget.file.name}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.heading)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(),
+                  Expanded(
+                    child: snapshot.connectionState == ConnectionState.waiting
+                        ? const Center(child: CircularProgressIndicator(color: AppColors.green700))
+                        : snapshot.hasError || (snapshot.data?.isEmpty ?? true)
+                            ? const Center(child: Text('No activity found', style: TextStyle(color: AppColors.muted)))
+                            : ListView.builder(
+                                itemCount: snapshot.data!.length,
+                                itemBuilder: (_, i) {
+                                  final a = snapshot.data![i];
+                                  final subject = a['subject'] as String? ?? '';
+                                  final user = a['user'] as String? ?? '';
+                                  final dateStr = a['datetime'] as String? ?? '';
+                                  DateTime? date;
+                                  try { date = DateTime.parse(dateStr); } catch (_) {}
+                                  final timeAgo = date != null ? _timeAgo(date) : '';
+
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 16,
+                                          backgroundColor: AppColors.green700,
+                                          child: Text(user.isNotEmpty ? user[0].toUpperCase() : '?', style: const TextStyle(color: AppColors.white, fontSize: 12)),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(subject, style: const TextStyle(fontSize: 13, color: AppColors.heading)),
+                                              Text('$user • $timeAgo', style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _timeAgo(DateTime date) {
+    final diff = DateTime.now().difference(date);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${date.day}/${date.month}/${date.year}';
   }
 
   Future<void> _downloadCurrentFile() async {

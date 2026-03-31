@@ -17,6 +17,8 @@ class DataCacheService extends ChangeNotifier {
   List<NcFile> starredFiles = [];
   List<NcFile> trashFiles = [];
   Map<String, dynamic> quota = {};
+  List<Map<String, dynamic>> activityFeed = [];
+  String quotaWarningLevel = 'ok';
   bool isFirstLoad = true;
   bool isRefreshing = false;
 
@@ -51,6 +53,7 @@ class DataCacheService extends ChangeNotifier {
         _webdav.listSharedByMe(),       // 4
         _webdav.listFavorites(),        // 5
         _webdav.listTrash(),            // 6
+        _webdav.getActivity(),          // 7
       ]);
 
       rootFiles = results[0] as List<NcFile>;
@@ -60,6 +63,23 @@ class DataCacheService extends ChangeNotifier {
       sharedByMe = results[4] as List<NcFile>;
       starredFiles = results[5] as List<NcFile>;
       trashFiles = results[6] as List<NcFile>;
+      activityFeed = results[7] as List<Map<String, dynamic>>;
+
+      // Compute quota warning level
+      final used = (quota['used'] as int?) ?? 0;
+      final total = (quota['total'] as int?) ?? -1;
+      if (total > 0) {
+        final ratio = used / total;
+        if (ratio >= 0.9) {
+          quotaWarningLevel = 'critical';
+        } else if (ratio >= 0.8) {
+          quotaWarningLevel = 'warning';
+        } else {
+          quotaWarningLevel = 'ok';
+        }
+      } else {
+        quotaWarningLevel = 'ok';
+      }
 
       // Also store root in folder cache
       _folderCache['/'] = rootFiles;

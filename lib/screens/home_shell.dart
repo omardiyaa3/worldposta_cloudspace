@@ -2,8 +2,10 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../config/theme.dart';
+import '../services/account_manager.dart';
 import '../services/auth_service.dart';
 import '../services/data_cache_service.dart';
 import '../services/sync_service.dart';
@@ -14,6 +16,8 @@ import 'files/file_preview_screen.dart';
 import '../widgets/top_bar.dart';
 import 'dashboard/dashboard_screen.dart';
 import 'files/files_screen.dart';
+import 'activity_screen.dart';
+import 'auth/login_screen.dart';
 import 'settings/settings_screen.dart';
 import 'sync_monitor_screen.dart';
 import 'webview_screen.dart';
@@ -28,6 +32,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   String _currentRoute = 'dashboard';
   String _searchQuery = '';
+  String _currentFilesPath = '/';
 
   void _showNewMenu() {
     showModalBottomSheet(
@@ -100,7 +105,8 @@ class _HomeShellState extends State<HomeShell> {
           continue;
         }
 
-        await webdav.uploadFile('/$fileName', bytes);
+        final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+        await webdav.uploadFile('${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName', bytes);
       }
 
       if (mounted) {
@@ -146,7 +152,8 @@ class _HomeShellState extends State<HomeShell> {
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
-      await webdav.createDirectory('/$name');
+      final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+      await webdav.createDirectory('${basePath.endsWith('/') ? basePath : '$basePath/'}$name');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Created folder "$name"'), backgroundColor: AppColors.green700),
@@ -217,15 +224,16 @@ class _HomeShellState extends State<HomeShell> {
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
-      // Create an empty file on the server at root
-      await webdav.uploadFile('/$fileName', Uint8List(0));
+      final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+      final remotePath = '${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName';
+      await webdav.uploadFile(remotePath, Uint8List(0));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('File "$fileName" created'), backgroundColor: AppColors.green700),
         );
         // Get file info from server to get the fileId
         setState(() => _currentRoute = 'files');
-        final files = await webdav.listFiles('/');
+        final files = await webdav.listFiles(basePath);
         final newFile = files.where((f) => f.name == fileName).firstOrNull;
         if (newFile != null && mounted) {
           // Refresh cache
@@ -246,9 +254,16 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _setupSyncFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Choose a local folder to sync with CloudSpace',
-    );
+    String? result;
+    if (Platform.isIOS || Platform.isAndroid) {
+      final dir = await getApplicationDocumentsDirectory();
+      result = '${dir.path}/CloudSpace';
+      await Directory(result).create(recursive: true);
+    } else {
+      result = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Choose a local folder to sync with CloudSpace',
+      );
+    }
     if (result == null) return;
 
     if (!mounted) return;
@@ -259,7 +274,9 @@ class _HomeShellState extends State<HomeShell> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Sync started: ${result.split('/').last} ↔ server'),
+          content: Text(Platform.isIOS || Platform.isAndroid
+              ? 'Sync started. Files available in Files app → On My iPhone → CloudSpace'
+              : 'Sync started: ${result.split('/').last} ↔ server'),
           backgroundColor: AppColors.green700,
         ),
       );
@@ -273,7 +290,7 @@ class _HomeShellState extends State<HomeShell> {
           onNavigateToFiles: () => setState(() => _currentRoute = 'files'),
         );
       case 'files':
-        return FilesScreen(key: ValueKey('files_$_searchQuery'), mode: FileViewMode.files, searchQuery: _searchQuery);
+        return FilesScreen(key: ValueKey('files_$_searchQuery'), mode: FileViewMode.files, searchQuery: _searchQuery, onPathChanged: (p) => _currentFilesPath = p);
       case 'shared':
         return FilesScreen(key: const ValueKey('shared'), mode: FileViewMode.shared);
       case 'recent':
@@ -282,6 +299,8 @@ class _HomeShellState extends State<HomeShell> {
         return FilesScreen(key: const ValueKey('starred'), mode: FileViewMode.starred);
       case 'trash':
         return FilesScreen(key: const ValueKey('trash'), mode: FileViewMode.trash);
+      case 'activity':
+        return const ActivityScreen();
       case 'settings':
         return const SettingsScreen();
       case 'sync_monitor':
@@ -301,6 +320,7 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    final accountMgr = context.watch<AccountManager>();
     final auth = context.watch<AuthService>();
     final cache = context.watch<DataCacheService>();
     final usedStorage = ((cache.quota['used'] as int?) ?? 0).toDouble();
@@ -342,7 +362,7 @@ class _HomeShellState extends State<HomeShell> {
                 // Hide top bar for WebView routes — they have their own UI
                 if (!_isWebViewRoute)
                   TopBar(
-                    displayName: auth.displayName,
+                    displayName: accountMgr.displayName ?? auth.displayName,
                     onProfileTap: () => _showProfileMenu(context),
                     onSettingsTap: () => setState(() => _currentRoute = 'settings'),
                     onRefreshTap: () {
@@ -358,6 +378,25 @@ class _HomeShellState extends State<HomeShell> {
                         }
                       });
                     },
+                  ),
+                // Quota warning banner
+                if (cache.quotaWarningLevel == 'critical')
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    color: AppColors.filePdf.withValues(alpha: 0.15),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, size: 16, color: AppColors.filePdf),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Storage almost full (${totalStorage > 0 ? ((usedStorage / totalStorage) * 100).toInt() : 0}% used)! Free up space.',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.filePdf),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 // Sync status banner
                 Consumer<SyncService>(
@@ -492,23 +531,80 @@ class _HomeShellState extends State<HomeShell> {
 
   void _showProfileMenu(BuildContext context) {
     final auth = context.read<AuthService>();
+    final accountMgr = context.read<AccountManager>();
     SyncService? sync;
     try {
       sync = context.read<SyncService>();
     } catch (_) {}
 
+    final activeAccount = accountMgr.activeAccount;
+    final otherAccounts = accountMgr.accounts
+        .where((a) => a.id != activeAccount?.id)
+        .toList();
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(auth.displayName ?? 'User'),
+        title: Text(accountMgr.displayName ?? auth.displayName ?? 'User'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Server: ${auth.serverUrl}', style: const TextStyle(color: AppColors.body)),
-            Text('User: ${auth.username}', style: const TextStyle(color: AppColors.body)),
-            if (sync != null) ...[
+            Text('Server: ${accountMgr.serverUrl ?? auth.serverUrl}', style: const TextStyle(color: AppColors.body)),
+            Text('User: ${accountMgr.username ?? auth.username}', style: const TextStyle(color: AppColors.body)),
+
+            // Other accounts section
+            if (otherAccounts.isNotEmpty) ...[
               const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text('Switch Account', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.heading)),
+              const SizedBox(height: 4),
+              ...otherAccounts.map((account) => ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  radius: 16,
+                  backgroundColor: AppColors.green700,
+                  child: Text(
+                    account.displayName.isNotEmpty ? account.displayName[0].toUpperCase() : 'U',
+                    style: const TextStyle(color: AppColors.white, fontSize: 13),
+                  ),
+                ),
+                title: Text(account.displayName, style: const TextStyle(fontSize: 13)),
+                subtitle: Text(account.serverUrl, style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+                trailing: IconButton(
+                  icon: const Icon(Icons.logout, size: 16, color: AppColors.filePdf),
+                  tooltip: 'Remove account',
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    accountMgr.logout(account.id);
+                  },
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  accountMgr.switchAccount(account.id);
+                },
+              )),
+            ],
+
+            // Add Account button
+            const SizedBox(height: 8),
+            const Divider(),
+            const SizedBox(height: 4),
+            TextButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                // Navigate to login screen for adding a new account
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+              },
+              icon: const Icon(Icons.person_add, size: 16, color: AppColors.green800),
+              label: const Text('Add Account', style: TextStyle(color: AppColors.green800)),
+            ),
+
+            if (sync != null) ...[
               const Divider(),
               const SizedBox(height: 8),
               const Text('Sync', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.heading)),
@@ -565,6 +661,10 @@ class _HomeShellState extends State<HomeShell> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
+              // Log out of both systems
+              if (activeAccount != null) {
+                accountMgr.logoutCurrent();
+              }
               auth.logout();
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.filePdf),

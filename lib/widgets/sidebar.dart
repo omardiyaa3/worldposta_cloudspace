@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../config/theme.dart';
+import '../services/account_manager.dart';
 
 class SidebarItem {
   final IconData icon;
@@ -36,6 +38,7 @@ class AppSidebar extends StatelessWidget {
     SidebarItem(icon: Icons.access_time, label: 'Recent', route: 'recent'),
     SidebarItem(icon: Icons.star_outline, label: 'Starred', route: 'starred'),
     SidebarItem(icon: Icons.delete_outline, label: 'Trash', route: 'trash'),
+    SidebarItem(icon: Icons.history, label: 'Activity', route: 'activity'),
     SidebarItem(icon: Icons.chat_bubble_outline, label: 'Talk', route: 'talk'),
   ];
 
@@ -52,7 +55,7 @@ class AppSidebar extends StatelessWidget {
         children: [
           // Logo
           Padding(
-            padding: EdgeInsets.only(top: topPadding + 16, left: 20, right: 20, bottom: 16),
+            padding: EdgeInsets.only(top: topPadding + 16, left: 20, right: 20, bottom: 8),
             child: Row(
               children: [
                 Image.asset('assets/logo.png', width: 40, height: 40),
@@ -68,6 +71,44 @@ class AppSidebar extends StatelessWidget {
               ],
             ),
           ),
+
+          // Active account indicator
+          Builder(
+            builder: (context) {
+              final accountMgr = context.watch<AccountManager>();
+              final active = accountMgr.activeAccount;
+              if (active == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 12,
+                      backgroundColor: AppColors.green700,
+                      child: Text(
+                        active.displayName.isNotEmpty ? active.displayName[0].toUpperCase() : 'U',
+                        style: const TextStyle(color: AppColors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        active.displayName,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.heading),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (accountMgr.accounts.length > 1)
+                      Text(
+                        '${accountMgr.accounts.length}',
+                        style: const TextStyle(fontSize: 10, color: AppColors.muted, fontWeight: FontWeight.w600),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 4),
 
           // + New Button
           Padding(

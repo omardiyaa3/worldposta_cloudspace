@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_service.dart';
 import 'webdav_service.dart';
@@ -14,6 +15,16 @@ import '../models/nc_file.dart';
 // sync. Stored in SharedPreferences as its name string.
 // ---------------------------------------------------------------------------
 enum ConflictResolution { serverWins, localWins, newestWins }
+
+// ---------------------------------------------------------------------------
+// Sync direction: controls whether files are downloaded, uploaded, or both.
+// ---------------------------------------------------------------------------
+enum SyncDirection { twoWay, downloadOnly, uploadOnly }
+
+// ---------------------------------------------------------------------------
+// Per-file sync status for UI reporting.
+// ---------------------------------------------------------------------------
+enum FileSyncStatus { synced, pending, syncing, error, excluded }
 
 // ---------------------------------------------------------------------------
 // Sync mode: immediate (file watcher + fallback timer) or periodic (timer only).
@@ -137,6 +148,23 @@ class SyncService extends ChangeNotifier {
   /// In-memory journal: remotePath -> _JournalEntry
   Map<String, _JournalEntry> _journal = {};
 
+  // ---- Sync direction (feature: upload-only / download-only) ---------------
+  SyncDirection _syncDirection = SyncDirection.twoWay;
+
+  // ---- Selective sync: include/exclude lists --------------------------------
+  Set<String> _includedFolders = {}; // if empty, include all
+  Set<String> _excludedPaths = {}; // server paths to exclude from download
+  Set<String> _excludedLocalPaths = {}; // local paths to exclude from upload
+
+  // ---- File size limit ------------------------------------------------------
+  int _maxFileSizeBytes = 0; // 0 = no limit
+
+  // ---- Skip current file (temporary, cleared each sync cycle) ---------------
+  final Set<String> _skipFiles = {};
+
+  // ---- Per-file sync status -------------------------------------------------
+  final Map<String, FileSyncStatus> _fileSyncStatuses = {};
+
   // ---- Public getters (preserves existing API) ----------------------------
 
   bool get isSyncing => _isSyncing;
@@ -158,11 +186,30 @@ class SyncService extends ChangeNotifier {
   SyncMode get syncMode => _syncMode;
   Set<String> get failedFiles => Set.unmodifiable(_failedFiles);
 
+  SyncDirection get syncDirection => _syncDirection;
+  Set<String> get includedFolders => Set.unmodifiable(_includedFolders);
+  Set<String> get excludedPaths => Set.unmodifiable(_excludedPaths);
+  Set<String> get excludedLocalPaths => Set.unmodifiable(_excludedLocalPaths);
+  int get maxFileSizeBytes => _maxFileSizeBytes;
+  Map<String, FileSyncStatus> get fileSyncStatuses =>
+      Map.unmodifiable(_fileSyncStatuses);
+
+  /// Per-account prefix for SharedPreferences keys.
+  String get accountId => _auth.userId ?? 'default';
+
+  /// Get the sync status of a specific file path.
+  FileSyncStatus getFileStatus(String path) =>
+      _fileSyncStatuses[path] ?? FileSyncStatus.pending;
+
   // ---- Constructor --------------------------------------------------------
 
   SyncService(this._auth) {
     _webdav = WebDavService(_auth);
   }
+
+  // ---- Per-account SharedPreferences key helper ----------------------------
+
+  String _prefKey(String key) => '${accountId}_$key';
 
   // ---- Logging ------------------------------------------------------------
 
@@ -176,26 +223,64 @@ class SyncService extends ChangeNotifier {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    _syncFolderPath = prefs.getString('sync_folder_path');
-    _remoteSyncPath = prefs.getString('sync_remote_path') ?? '/';
-    _isEnabled = prefs.getBool('sync_enabled') ?? false;
-    _downloadBytesPerSec = prefs.getInt('sync_dl_bps') ?? 0;
-    _uploadBytesPerSec = prefs.getInt('sync_ul_bps') ?? 0;
+    _syncFolderPath = prefs.getString(_prefKey('sync_folder_path'));
+    _remoteSyncPath = prefs.getString(_prefKey('sync_remote_path')) ?? '/';
 
-    final crName = prefs.getString('sync_conflict_resolution');
+    // On iOS/Android, fix any invalid sync paths from previous sessions
+    if ((Platform.isIOS || Platform.isAndroid) && _syncFolderPath != null) {
+      if (!_syncFolderPath!.contains('Documents/CloudSpace')) {
+        final appDir = await getApplicationDocumentsDirectory();
+        _syncFolderPath = '${appDir.path}/CloudSpace';
+        await prefs.setString(_prefKey('sync_folder_path'), _syncFolderPath!);
+        final dir = Directory(_syncFolderPath!);
+        if (!await dir.exists()) await dir.create(recursive: true);
+      }
+    }
+    _isEnabled = prefs.getBool(_prefKey('sync_enabled')) ?? false;
+    _downloadBytesPerSec = prefs.getInt(_prefKey('sync_dl_bps')) ?? 0;
+    _uploadBytesPerSec = prefs.getInt(_prefKey('sync_ul_bps')) ?? 0;
+
+    final crName = prefs.getString(_prefKey('sync_conflict_resolution'));
     _conflictResolution = ConflictResolution.values.firstWhere(
       (e) => e.name == crName,
       orElse: () => ConflictResolution.newestWins,
     );
 
-    final smName = prefs.getString('sync_mode');
+    final smName = prefs.getString(_prefKey('sync_mode'));
     _syncMode = SyncMode.values.firstWhere(
       (e) => e.name == smName,
       orElse: () => SyncMode.immediate,
     );
 
+    // Restore sync direction.
+    final sdName = prefs.getString(_prefKey('sync_direction'));
+    _syncDirection = SyncDirection.values.firstWhere(
+      (e) => e.name == sdName,
+      orElse: () => SyncDirection.twoWay,
+    );
+
+    // Restore max file size limit.
+    _maxFileSizeBytes = prefs.getInt(_prefKey('sync_max_file_size')) ?? 0;
+
+    // Restore included folders.
+    final includedJson = prefs.getString(_prefKey('sync_included_folders'));
+    if (includedJson != null) {
+      _includedFolders = (jsonDecode(includedJson) as List).cast<String>().toSet();
+    }
+
+    // Restore excluded paths (server).
+    final excludedJson = prefs.getString(_prefKey('sync_excluded_paths'));
+    if (excludedJson != null) {
+      _excludedPaths = (jsonDecode(excludedJson) as List).cast<String>().toSet();
+    }
+    // Restore excluded paths (local).
+    final excludedLocalJson = prefs.getString(_prefKey('sync_excluded_local_paths'));
+    if (excludedLocalJson != null) {
+      _excludedLocalPaths = (jsonDecode(excludedLocalJson) as List).cast<String>().toSet();
+    }
+
     // Restore failed files from previous session.
-    final failedList = prefs.getStringList('sync_failed_files');
+    final failedList = prefs.getStringList(_prefKey('sync_failed_files'));
     if (failedList != null) {
       _failedFiles = failedList.toSet();
     }
@@ -216,8 +301,8 @@ class SyncService extends ChangeNotifier {
     _remoteSyncPath = remotePath;
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('sync_folder_path', localPath);
-    await prefs.setString('sync_remote_path', remotePath);
+    await prefs.setString(_prefKey('sync_folder_path'), localPath);
+    await prefs.setString(_prefKey('sync_remote_path'), remotePath);
 
     final dir = Directory(localPath);
     if (!await dir.exists()) {
@@ -233,7 +318,7 @@ class SyncService extends ChangeNotifier {
   Future<void> setConflictResolution(ConflictResolution cr) async {
     _conflictResolution = cr;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('sync_conflict_resolution', cr.name);
+    await prefs.setString(_prefKey('sync_conflict_resolution'), cr.name);
     notifyListeners();
   }
 
@@ -241,15 +326,15 @@ class SyncService extends ChangeNotifier {
     if (downloadBps != null) _downloadBytesPerSec = downloadBps;
     if (uploadBps != null) _uploadBytesPerSec = uploadBps;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('sync_dl_bps', _downloadBytesPerSec);
-    await prefs.setInt('sync_ul_bps', _uploadBytesPerSec);
+    await prefs.setInt(_prefKey('sync_dl_bps'), _downloadBytesPerSec);
+    await prefs.setInt(_prefKey('sync_ul_bps'), _uploadBytesPerSec);
     notifyListeners();
   }
 
   Future<void> setSyncMode(SyncMode mode) async {
     _syncMode = mode;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('sync_mode', mode.name);
+    await prefs.setString(_prefKey('sync_mode'), mode.name);
 
     // If sync is active, restart to apply the new mode.
     if (_isEnabled && _syncFolderPath != null) {
@@ -259,12 +344,124 @@ class SyncService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- Sync direction -------------------------------------------------------
+
+  Future<void> setSyncDirection(SyncDirection direction) async {
+    _syncDirection = direction;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefKey('sync_direction'), direction.name);
+    notifyListeners();
+  }
+
+  // ---- Selective sync (include/exclude) -------------------------------------
+
+  Future<void> setIncludedFolders(Set<String> folders) async {
+    _includedFolders = folders;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _prefKey('sync_included_folders'), jsonEncode(folders.toList()));
+    notifyListeners();
+  }
+
+  Future<void> addExcludedPath(String path) async {
+    _excludedPaths.add(path);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _prefKey('sync_excluded_paths'), jsonEncode(_excludedPaths.toList()));
+    notifyListeners();
+  }
+
+  Future<void> removeExcludedPath(String path) async {
+    _excludedPaths.remove(path);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _prefKey('sync_excluded_paths'), jsonEncode(_excludedPaths.toList()));
+    notifyListeners();
+  }
+
+  Future<void> addExcludedLocalPath(String path) async {
+    _excludedLocalPaths.add(path);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _prefKey('sync_excluded_local_paths'), jsonEncode(_excludedLocalPaths.toList()));
+    notifyListeners();
+  }
+
+  Future<void> removeExcludedLocalPath(String path) async {
+    _excludedLocalPaths.remove(path);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _prefKey('sync_excluded_local_paths'), jsonEncode(_excludedLocalPaths.toList()));
+    notifyListeners();
+  }
+
+  // ---- File size limit ------------------------------------------------------
+
+  Future<void> setMaxFileSizeBytes(int bytes) async {
+    _maxFileSizeBytes = bytes;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_prefKey('sync_max_file_size'), bytes);
+    notifyListeners();
+  }
+
+  // ---- Skip current file ----------------------------------------------------
+
+  /// Skip the file currently being synced (adds to temporary skip set).
+  void skipCurrentFile() {
+    if (currentFile.isNotEmpty) {
+      _skipFiles.add(currentFile);
+      _log2('User skipped file: $currentFile');
+      notifyListeners();
+    }
+  }
+
+  // ---- File sync status helpers ---------------------------------------------
+
+  void _setFileStatus(String path, FileSyncStatus status) {
+    _fileSyncStatuses[path] = status;
+    notifyListeners();
+  }
+
+  // ---- Path filtering helpers -----------------------------------------------
+
+  /// Returns true if the given remote path should be synced based on
+  /// included folders and excluded paths settings.
+  bool _isPathIncluded(String remotePath) {
+    // Check exclusions first.
+    if (_excludedPaths.contains(remotePath)) return false;
+    for (final excluded in _excludedPaths) {
+      if (remotePath.startsWith(excluded.endsWith('/') ? excluded : '$excluded/')) {
+        return false;
+      }
+    }
+    // If no included folders are set, include everything.
+    if (_includedFolders.isEmpty) return true;
+    // Check if this path falls under any included folder.
+    for (final folder in _includedFolders) {
+      if (remotePath == folder ||
+          remotePath.startsWith(folder.endsWith('/') ? folder : '$folder/')) {
+        return true;
+      }
+      // Also include if the included folder is a child of this path
+      // (so parent dirs are traversed).
+      if (folder.startsWith(remotePath.endsWith('/') ? remotePath : '$remotePath/')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Returns true if a file should be skipped due to size limit.
+  bool _exceedsFileSizeLimit(int fileSize) {
+    return _maxFileSizeBytes > 0 && fileSize > _maxFileSizeBytes;
+  }
+
   // ---- Journal persistence ------------------------------------------------
 
-  /// Journal file path: stored next to the sync folder as a hidden file.
+  /// Journal file path: stored next to the sync folder as a hidden dot-file,
+  /// scoped per account.
   String get _journalPath {
-    // Place the journal file inside the sync folder itself (hidden dot-file).
-    return '${_syncFolderPath!}${Platform.pathSeparator}.cloudspace_sync.json';
+    return '${_syncFolderPath!}${Platform.pathSeparator}.cloudspace_sync_$accountId.json';
   }
 
   Future<void> _loadJournal() async {
@@ -355,6 +552,8 @@ class SyncService extends ChangeNotifier {
     totalBytesToSync = 0;
     totalBytesProcessed = 0;
     syncStartTime = DateTime.now();
+    _skipFiles.clear(); // reset temporary skip set each cycle
+    _fileSyncStatuses.clear();
     _log.clear();
     _status = 'Syncing...';
     notifyListeners();
@@ -448,6 +647,13 @@ class SyncService extends ChangeNotifier {
 
   Future<void> _syncDirectory(String localPath, String remotePath) async {
     if (_shouldStop) return;
+
+    // Selective sync: check if this directory path is included.
+    if (!_isPathIncluded(remotePath)) {
+      _log2('SKIP dir (excluded/not included): $remotePath');
+      return;
+    }
+
     _log2('--- Syncing dir: local=$localPath remote=$remotePath');
 
     final localDir = Directory(localPath);
@@ -521,14 +727,45 @@ class SyncService extends ChangeNotifier {
       final fileRemotePath = remote.path; // e.g. /Documents/foo.txt
       visitedRemotePaths.add(fileRemotePath);
 
+      // Check exclusion / inclusion for this file.
+      if (!_isPathIncluded(fileRemotePath)) {
+        _log2('SKIP (excluded): ${remote.name}');
+        _setFileStatus(fileRemotePath, FileSyncStatus.excluded);
+        localByName.remove(remote.name);
+        continue;
+      }
+
+      // Check skip set (user requested skip).
+      if (_skipFiles.contains(remote.name)) {
+        _log2('SKIP (user skip): ${remote.name}');
+        localByName.remove(remote.name);
+        continue;
+      }
+
+      // Check file size limit.
+      if (_exceedsFileSizeLimit(remote.size)) {
+        _log2('SKIP (exceeds size limit ${_formatSize(_maxFileSizeBytes)}): ${remote.name} (${_formatSize(remote.size)})');
+        _setFileStatus(fileRemotePath, FileSyncStatus.excluded);
+        localByName.remove(remote.name);
+        continue;
+      }
+
       final journalEntry = _journal[fileRemotePath];
       final localFile =
           (localEntity != null && localEntity is File) ? localEntity : null;
+
+      _setFileStatus(fileRemotePath, FileSyncStatus.syncing);
 
       if (journalEntry == null) {
         // ---- Not in journal: new file on one side or the other ----
         if (localFile == null) {
           // Only on server -> download
+          if (_syncDirection == SyncDirection.uploadOnly) {
+            _log2('SKIP DOWNLOAD (uploadOnly mode): ${remote.name}');
+            _setFileStatus(fileRemotePath, FileSyncStatus.pending);
+            localByName.remove(remote.name);
+            continue;
+          }
           _log2('NEW DOWNLOAD: ${remote.name} (not in journal, not local, ${_formatSize(remote.size)})');
           final destPath =
               '$localPath${Platform.pathSeparator}${remote.name}';
@@ -547,6 +784,7 @@ class SyncService extends ChangeNotifier {
           notifyListeners();
           await _recordJournalAfterDownload(fileRemotePath, destPath, remote);
           _lastDownloaded++;
+          _setFileStatus(fileRemotePath, FileSyncStatus.synced);
         } else {
           // Both exist on server and locally but no journal entry.
           // Compare sizes: if same, assume in sync (likely just downloaded).
@@ -591,6 +829,7 @@ class SyncService extends ChangeNotifier {
             notifyListeners();
             _lastConflicts++;
           }
+          _setFileStatus(fileRemotePath, FileSyncStatus.synced);
         }
       } else {
         // ---- In journal: compare etag (remote) and mtime/size (local) ----
@@ -618,132 +857,183 @@ class SyncService extends ChangeNotifier {
           );
           totalBytesProcessed += remote.size;
           filesProcessed++;
+          _setFileStatus(fileRemotePath, FileSyncStatus.synced);
           notifyListeners();
         } else if (remoteChanged) {
-          // Server changed, local didn't (or local file deleted).
-          final destPath =
-              '$localPath${Platform.pathSeparator}${remote.name}';
-          totalFilesToSync++;
-          totalBytesToSync += remote.size;
-          currentFile = remote.name;
-          currentFileBytes = 0;
-          currentFileTotalBytes = remote.size;
-          notifyListeners();
-          _log2('  -> Remote changed (etag), downloading');
-          await _retryOperation(
-              'download ${remote.name}',
-              () => _downloadWithResume(remote.path, destPath, remote.size));
-          totalBytesProcessed += remote.size;
-          filesProcessed++;
-          notifyListeners();
-          await _recordJournalAfterDownload(fileRemotePath, destPath, remote);
-          _lastDownloaded++;
+          if (_syncDirection == SyncDirection.uploadOnly) {
+            _log2('  SKIP DOWNLOAD (uploadOnly mode): ${remote.name}');
+            _setFileStatus(fileRemotePath, FileSyncStatus.pending);
+          } else {
+            // Server changed, local didn't (or local file deleted).
+            final destPath =
+                '$localPath${Platform.pathSeparator}${remote.name}';
+            totalFilesToSync++;
+            totalBytesToSync += remote.size;
+            currentFile = remote.name;
+            currentFileBytes = 0;
+            currentFileTotalBytes = remote.size;
+            notifyListeners();
+            _log2('  -> Remote changed (etag), downloading');
+            await _retryOperation(
+                'download ${remote.name}',
+                () => _downloadWithResume(remote.path, destPath, remote.size));
+            totalBytesProcessed += remote.size;
+            filesProcessed++;
+            notifyListeners();
+            await _recordJournalAfterDownload(fileRemotePath, destPath, remote);
+            _lastDownloaded++;
+            _setFileStatus(fileRemotePath, FileSyncStatus.synced);
+          }
         } else if (localChanged) {
-          // Local changed, server didn't.
-          totalFilesToSync++;
-          currentFile = remote.name;
-          currentFileBytes = 0;
-          currentFileTotalBytes = remote.size;
-          totalBytesToSync += remote.size;
-          notifyListeners();
-          _log2('  -> Local changed, uploading');
-          await _retryOperation('upload ${remote.name}',
-              () => _uploadFile(localFile.path, remote.path));
-          totalBytesProcessed += remote.size;
-          filesProcessed++;
-          notifyListeners();
-          await _recordJournalAfterUpload(
-              fileRemotePath, localFile, remote);
-          _lastUploaded++;
+          if (_syncDirection == SyncDirection.downloadOnly) {
+            _log2('  SKIP UPLOAD (downloadOnly mode): ${remote.name}');
+            _setFileStatus(fileRemotePath, FileSyncStatus.pending);
+          } else {
+            // Local changed, server didn't.
+            totalFilesToSync++;
+            currentFile = remote.name;
+            currentFileBytes = 0;
+            currentFileTotalBytes = remote.size;
+            totalBytesToSync += remote.size;
+            notifyListeners();
+            _log2('  -> Local changed, uploading');
+            await _retryOperation('upload ${remote.name}',
+                () => _uploadFile(localFile.path, remote.path));
+            totalBytesProcessed += remote.size;
+            filesProcessed++;
+            notifyListeners();
+            await _recordJournalAfterUpload(
+                fileRemotePath, localFile, remote);
+            _lastUploaded++;
+            _setFileStatus(fileRemotePath, FileSyncStatus.synced);
+          }
         } else if (localFile == null) {
-          // Local file was deleted since last sync but remote unchanged ->
-          // re-download (server wins for deletions — user should delete via
-          // app, not filesystem, to propagate).
-          totalFilesToSync++;
-          totalBytesToSync += remote.size;
-          currentFile = remote.name;
-          currentFileBytes = 0;
-          currentFileTotalBytes = remote.size;
-          notifyListeners();
-          _log2('  -> Local deleted, re-downloading from server');
-          final destPath =
-              '$localPath${Platform.pathSeparator}${remote.name}';
-          await _retryOperation(
-              'download ${remote.name}',
-              () => _downloadWithResume(remote.path, destPath, remote.size));
-          totalBytesProcessed += remote.size;
-          filesProcessed++;
-          notifyListeners();
-          await _recordJournalAfterDownload(fileRemotePath, destPath, remote);
-          _lastDownloaded++;
+          if (_syncDirection == SyncDirection.uploadOnly) {
+            _log2('  SKIP re-download (uploadOnly mode): ${remote.name}');
+            _setFileStatus(fileRemotePath, FileSyncStatus.pending);
+          } else {
+            // Local file was deleted since last sync but remote unchanged ->
+            // re-download (server wins for deletions — user should delete via
+            // app, not filesystem, to propagate).
+            totalFilesToSync++;
+            totalBytesToSync += remote.size;
+            currentFile = remote.name;
+            currentFileBytes = 0;
+            currentFileTotalBytes = remote.size;
+            notifyListeners();
+            _log2('  -> Local deleted, re-downloading from server');
+            final destPath =
+                '$localPath${Platform.pathSeparator}${remote.name}';
+            await _retryOperation(
+                'download ${remote.name}',
+                () => _downloadWithResume(remote.path, destPath, remote.size));
+            totalBytesProcessed += remote.size;
+            filesProcessed++;
+            notifyListeners();
+            await _recordJournalAfterDownload(fileRemotePath, destPath, remote);
+            _lastDownloaded++;
+            _setFileStatus(fileRemotePath, FileSyncStatus.synced);
+          }
         } else {
           _log2('  -> In sync');
+          _setFileStatus(fileRemotePath, FileSyncStatus.synced);
         }
       }
       localByName.remove(remote.name);
     }
 
     // ---- UPLOAD: local items not on remote ----
-    for (final entry in localByName.entries) {
-      if (_shouldStop) return;
-      final name = entry.key;
-      final entity = entry.value;
-      final remoteItemPath = _joinRemote(remotePath, name);
+    if (_syncDirection == SyncDirection.downloadOnly) {
+      _log2('SKIP all uploads (downloadOnly mode)');
+    } else {
+      for (final entry in localByName.entries) {
+        if (_shouldStop) return;
+        final name = entry.key;
+        final entity = entry.value;
+        final remoteItemPath = _joinRemote(remotePath, name);
 
-      if (entity is Directory) {
-        _log2('UPLOAD DIR: $name -> $remoteItemPath');
-        try {
-          await _webdav.createDirectory(remoteItemPath);
-          _log2('  Created remote dir: $remoteItemPath');
-        } catch (e) {
-          _log2('  Remote dir create (may already exist): $e');
-        }
-        await _syncDirectory(entity.path, remoteItemPath);
-      } else if (entity is File) {
-        // Check journal: if it was in journal before but is now gone from
-        // server, the server-side was deleted.  Respect that (don't re-upload).
-        final existingJournal = _journal[remoteItemPath];
-        if (existingJournal != null) {
-          // Was synced before, server no longer has it -> server deleted it.
-          _log2('SERVER DELETED: $name — removing local copy');
-          try {
-            await entity.delete();
-          } catch (e) {
-            _log2('  FAIL deleting local: $e');
-          }
-          _journal.remove(remoteItemPath);
+        // For uploads, check server exclusions and local exclusions
+        final localItemPath = '$localPath${Platform.pathSeparator}$name';
+        if (_excludedPaths.contains(remoteItemPath) ||
+            _excludedPaths.any((ex) => remoteItemPath.startsWith(ex.endsWith('/') ? ex : '$ex/')) ||
+            _excludedLocalPaths.contains(localItemPath) ||
+            _excludedLocalPaths.any((ex) => localItemPath.startsWith(ex.endsWith(Platform.pathSeparator) ? ex : '$ex${Platform.pathSeparator}'))) {
+          _log2('SKIP UPLOAD (excluded): $name');
+          _setFileStatus(remoteItemPath, FileSyncStatus.excluded);
           continue;
         }
 
-        final fileSize = await entity.length();
-        totalFilesToSync++;
-        totalBytesToSync += fileSize;
-        currentFile = name;
-        currentFileBytes = 0;
-        currentFileTotalBytes = fileSize;
-        notifyListeners();
-        _log2(
-            'UPLOAD FILE: $name -> $remoteItemPath (${_formatSize(fileSize)})');
-        await _retryOperation('upload $name',
-            () => _uploadFile(entity.path, remoteItemPath));
-        totalBytesProcessed += fileSize;
-        filesProcessed++;
-        notifyListeners();
+        // Check skip set.
+        if (_skipFiles.contains(name)) {
+          _log2('SKIP UPLOAD (user skip): $name');
+          continue;
+        }
 
-        // Record in journal. We don't have the server's etag yet (would need
-        // a PROPFIND after upload), so mark etag as null — next sync the
-        // PROPFIND will populate it and since local won't have changed, it
-        // will just update the journal.
-        try {
-          final stat = await entity.lastModified();
-          _journal[remoteItemPath] = _JournalEntry(
-            etag: null,
-            size: fileSize,
-            localMtimeMs: stat.millisecondsSinceEpoch,
-            remoteModifiedMs: DateTime.now().millisecondsSinceEpoch,
-          );
-        } catch (_) {}
-        _lastUploaded++;
+        if (entity is Directory) {
+          _log2('UPLOAD DIR: $name -> $remoteItemPath');
+          try {
+            await _webdav.createDirectory(remoteItemPath);
+            _log2('  Created remote dir: $remoteItemPath');
+          } catch (e) {
+            _log2('  Remote dir create (may already exist): $e');
+          }
+          await _syncDirectory(entity.path, remoteItemPath);
+        } else if (entity is File) {
+          // Check journal: if it was in journal before but is now gone from
+          // server, the server-side was deleted.  Respect that (don't re-upload).
+          final existingJournal = _journal[remoteItemPath];
+          if (existingJournal != null) {
+            // Was synced before, server no longer has it -> server deleted it.
+            _log2('SERVER DELETED: $name — removing local copy');
+            try {
+              await entity.delete();
+            } catch (e) {
+              _log2('  FAIL deleting local: $e');
+            }
+            _journal.remove(remoteItemPath);
+            continue;
+          }
+
+          final fileSize = await entity.length();
+
+          // Check file size limit.
+          if (_exceedsFileSizeLimit(fileSize)) {
+            _log2('SKIP UPLOAD (exceeds size limit ${_formatSize(_maxFileSizeBytes)}): $name (${_formatSize(fileSize)})');
+            _setFileStatus(remoteItemPath, FileSyncStatus.excluded);
+            continue;
+          }
+
+          _setFileStatus(remoteItemPath, FileSyncStatus.syncing);
+          totalFilesToSync++;
+          totalBytesToSync += fileSize;
+          currentFile = name;
+          currentFileBytes = 0;
+          currentFileTotalBytes = fileSize;
+          notifyListeners();
+          _log2(
+              'UPLOAD FILE: $name -> $remoteItemPath (${_formatSize(fileSize)})');
+          await _retryOperation('upload $name',
+              () => _uploadFile(entity.path, remoteItemPath));
+          totalBytesProcessed += fileSize;
+          filesProcessed++;
+          notifyListeners();
+
+          // Record in journal. We don't have the server's etag yet (would need
+          // a PROPFIND after upload), so mark etag as null — next sync the
+          // PROPFIND will populate it and since local won't have changed, it
+          // will just update the journal.
+          try {
+            final stat = await entity.lastModified();
+            _journal[remoteItemPath] = _JournalEntry(
+              etag: null,
+              size: fileSize,
+              localMtimeMs: stat.millisecondsSinceEpoch,
+              remoteModifiedMs: DateTime.now().millisecondsSinceEpoch,
+            );
+          } catch (_) {}
+          _lastUploaded++;
+          _setFileStatus(remoteItemPath, FileSyncStatus.synced);
+        }
       }
     }
   }
@@ -1073,14 +1363,14 @@ class SyncService extends ChangeNotifier {
 
   Future<void> _saveEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('sync_enabled', enabled);
+    await prefs.setBool(_prefKey('sync_enabled'), enabled);
   }
 
   // ---- Failed files persistence -------------------------------------------
 
   Future<void> _saveFailedFiles() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('sync_failed_files', _failedFiles.toList());
+    await prefs.setStringList(_prefKey('sync_failed_files'), _failedFiles.toList());
   }
 
   void _recordFailedFile(String path) {
@@ -1098,6 +1388,8 @@ class SyncService extends ChangeNotifier {
   void _startFileWatcher() {
     _stopFileWatcher();
     if (_syncFolderPath == null) return;
+    // File watcher not supported on iOS/Android
+    if (Platform.isIOS || Platform.isAndroid) return;
 
     try {
       final dir = Directory(_syncFolderPath!);

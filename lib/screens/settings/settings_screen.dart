@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/sync_service.dart';
+import '../sync_config_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -196,6 +197,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onChanged: (v) {
                   if (v != null) sync.setConflictResolution(v);
                 },
+              ),
+
+              const SizedBox(height: 16),
+
+              // Sync direction
+              _DropdownField<SyncDirection>(
+                label: 'Sync Direction',
+                value: sync.syncDirection,
+                items: const [
+                  DropdownMenuItem(
+                    value: SyncDirection.twoWay,
+                    child: Text('Two-way sync'),
+                  ),
+                  DropdownMenuItem(
+                    value: SyncDirection.downloadOnly,
+                    child: Text('Download only'),
+                  ),
+                  DropdownMenuItem(
+                    value: SyncDirection.uploadOnly,
+                    child: Text('Upload only'),
+                  ),
+                ],
+                onChanged: (v) {
+                  if (v != null) sync.setSyncDirection(v);
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              // File size limit display
+              _ReadOnlyField(
+                label: 'File Size Limit',
+                value: sync.maxFileSizeBytes > 0
+                    ? '${(sync.maxFileSizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+                    : 'No limit',
+              ),
+
+              const SizedBox(height: 16),
+
+              // Link to full sync configuration
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const SyncConfigScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.tune, size: 18),
+                  label: const Text('Sync Configuration'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.green800,
+                    side: const BorderSide(color: AppColors.green800),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

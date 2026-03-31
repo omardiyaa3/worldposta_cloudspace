@@ -77,6 +77,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
           : ListView(
               padding: EdgeInsets.all(isMobile ? 16 : 24),
               children: [
+                // Quota warning banner
+                if (cache.quotaWarningLevel == 'warning' || cache.quotaWarningLevel == 'critical')
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: cache.quotaWarningLevel == 'critical'
+                          ? AppColors.filePdf.withValues(alpha: 0.12)
+                          : AppColors.fileAi.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: cache.quotaWarningLevel == 'critical'
+                            ? AppColors.filePdf.withValues(alpha: 0.4)
+                            : AppColors.fileAi.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 20,
+                          color: cache.quotaWarningLevel == 'critical'
+                              ? AppColors.filePdf
+                              : AppColors.fileAi,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            cache.quotaWarningLevel == 'critical'
+                                ? 'Storage almost full (${total > 0 ? ((used / total) * 100).toInt() : 0}% used)! Free up space.'
+                                : 'Storage is running low (${total > 0 ? ((used / total) * 100).toInt() : 0}% used)',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: cache.quotaWarningLevel == 'critical'
+                                  ? AppColors.filePdf
+                                  : AppColors.fileAi,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 // Welcome banner
                 Container(
                   padding: EdgeInsets.all(isMobile ? 14 : 20),

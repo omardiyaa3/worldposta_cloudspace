@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -14,6 +15,7 @@ import '../../config/theme.dart';
 import '../../models/nc_file.dart';
 import '../../services/auth_service.dart';
 import '../../services/data_cache_service.dart';
+import '../../services/sync_service.dart';
 import '../../services/webdav_service.dart';
 import '../../widgets/file_type_badge.dart';
 import 'file_preview_screen.dart';
@@ -25,8 +27,9 @@ enum SortDir { asc, desc }
 class FilesScreen extends StatefulWidget {
   final FileViewMode mode;
   final String searchQuery;
+  final ValueChanged<String>? onPathChanged;
 
-  const FilesScreen({super.key, this.mode = FileViewMode.files, this.searchQuery = ''});
+  const FilesScreen({super.key, this.mode = FileViewMode.files, this.searchQuery = '', this.onPathChanged});
 
   @override
   State<FilesScreen> createState() => _FilesScreenState();
@@ -64,6 +67,28 @@ class _FilesScreenState extends State<FilesScreen> {
   void initState() {
     super.initState();
     _loadFiles();
+    // Listen to DataCacheService changes (e.g. refresh button) and reload
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<DataCacheService>().addListener(_onCacheChanged);
+    });
+  }
+
+  bool _cacheListenerPaused = false;
+
+  void _onCacheChanged() {
+    // Only reload if not already loading (avoids loops from getFolder->notifyListeners)
+    if (!_isLoading && !_cacheListenerPaused && mounted) {
+      _cacheListenerPaused = true;
+      _loadFiles().whenComplete(() => _cacheListenerPaused = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    try {
+      context.read<DataCacheService>().removeListener(_onCacheChanged);
+    } catch (_) {}
+    super.dispose();
   }
 
   Future<void> _loadFiles() async {
@@ -166,6 +191,7 @@ class _FilesScreenState extends State<FilesScreen> {
   void _navigateToFolder(NcFile folder) {
     if (widget.mode != FileViewMode.files) return;
     setState(() => _currentPath = folder.path);
+    widget.onPathChanged?.call(folder.path);
     _loadFiles();
   }
 
@@ -173,6 +199,7 @@ class _FilesScreenState extends State<FilesScreen> {
     final parts = _currentPath.split('/').where((p) => p.isNotEmpty).toList();
     final newPath = '/${parts.sublist(0, index + 1).join('/')}';
     setState(() => _currentPath = newPath);
+    widget.onPathChanged?.call(newPath);
     _loadFiles();
   }
 
@@ -772,16 +799,10 @@ class _FilesScreenState extends State<FilesScreen> {
                   // --- Share with people section ---
                   const Text('Share with user or email', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.heading)),
                   const SizedBox(height: 8),
-                  TextField(
+                  _ShareAutocompleteField(
                     controller: shareWithController,
-                    decoration: InputDecoration(
-                      hintText: 'Username or email',
-                      filled: true,
-                      fillColor: AppColors.grey96,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    ),
-                    style: const TextStyle(fontSize: 14),
+                    serverUrl: auth.serverUrl!,
+                    basicAuth: auth.basicAuth,
                   ),
                   const SizedBox(height: 8),
                   // Permission picker for new share
@@ -1335,6 +1356,73 @@ class _FilesScreenState extends State<FilesScreen> {
     );
   }
 
+  void _showFileActivity(NcFile file) {
+    final auth = context.read<AuthService>();
+    final webdav = WebDavService(auth);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => FutureBuilder<List<Map<String, dynamic>>>(
+        future: webdav.getFileActivity(file.fileId!),
+        builder: (ctx, snapshot) => Container(
+          height: MediaQuery.of(ctx).size.height * 0.6,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.history, color: AppColors.green800, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Activity — ${file.name}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.heading), overflow: TextOverflow.ellipsis)),
+              ]),
+              const SizedBox(height: 12),
+              const Divider(),
+              Expanded(
+                child: snapshot.connectionState == ConnectionState.waiting
+                    ? const Center(child: CircularProgressIndicator(color: AppColors.green700))
+                    : (snapshot.data?.isEmpty ?? true)
+                        ? const Center(child: Text('No activity found', style: TextStyle(color: AppColors.muted)))
+                        : ListView.builder(
+                            itemCount: snapshot.data!.length,
+                            itemBuilder: (_, i) {
+                              final a = snapshot.data![i];
+                              final subject = a['subject'] as String? ?? '';
+                              final user = a['user'] as String? ?? '';
+                              final dateStr = a['datetime'] as String? ?? '';
+                              DateTime? date;
+                              try { date = DateTime.parse(dateStr); } catch (_) {}
+                              final timeAgo = date != null ? _timeAgo(date) : '';
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  CircleAvatar(radius: 16, backgroundColor: AppColors.green700, child: Text(user.isNotEmpty ? user[0].toUpperCase() : '?', style: const TextStyle(color: AppColors.white, fontSize: 12))),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Text(subject, style: const TextStyle(fontSize: 13, color: AppColors.heading)),
+                                    Text('$user • $timeAgo', style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+                                  ])),
+                                ]),
+                              );
+                            },
+                          ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _timeAgo(DateTime date) {
+    final diff = DateTime.now().difference(date);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
   void _openFile(NcFile file) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -1824,7 +1912,7 @@ class _FilesScreenState extends State<FilesScreen> {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         InkWell(
-          onTap: () { setState(() => _currentPath = '/'); _loadFiles(); },
+          onTap: () { setState(() => _currentPath = '/'); widget.onPathChanged?.call('/'); _loadFiles(); },
           child: const Text('My Files', style: TextStyle(fontSize: 14, color: AppColors.green700, fontWeight: FontWeight.w500)),
         ),
         ..._breadcrumbs.asMap().entries.map((entry) {
@@ -1927,6 +2015,7 @@ class _FilesScreenState extends State<FilesScreen> {
                   onDelete: () => _deleteFile(f),
                   onToggleFavorite: () => _toggleFavorite(f),
                   onShare: () => _shareFile(f),
+                  onViewActivity: (f.fileId != null && f.fileId!.isNotEmpty) ? () => _showFileActivity(f) : null,
                 )).toList(),
               ),
               const SizedBox(height: 24),
@@ -1971,6 +2060,7 @@ class _FilesScreenState extends State<FilesScreen> {
                     if (!isMobile) Expanded(flex: 2, child: _SortableHeader(label: 'OWNER', column: SortColumn.owner, current: _sortColumn, dir: _sortDir, onTap: _onSort)),
                     if (!isMobile) Expanded(flex: 2, child: _SortableHeader(label: 'LAST MODIFIED', column: SortColumn.date, current: _sortColumn, dir: _sortDir, onTap: _onSort)),
                     Expanded(child: _SortableHeader(label: 'SIZE', column: SortColumn.size, current: _sortColumn, dir: _sortDir, onTap: _onSort)),
+                    SizedBox(width: isMobile ? 60 : 80, child: const Text('STATUS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.muted, letterSpacing: 0.5))),
                     SizedBox(width: isMobile ? 36 : 48, child: const Text('ACTION', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.muted, letterSpacing: 0.5))),
                   ],
                 ),
@@ -1985,6 +2075,7 @@ class _FilesScreenState extends State<FilesScreen> {
                 onToggleFavorite: widget.mode != FileViewMode.trash ? () => _toggleFavorite(file) : null,
                 onSetReminder: (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _setReminder(file) : null,
                 onShare: widget.mode != FileViewMode.trash ? () => _shareFile(file) : null,
+                onViewActivity: (file.fileId != null && file.fileId!.isNotEmpty) ? () => _showFileActivity(file) : null,
                 onPermanentDelete: widget.mode == FileViewMode.trash ? () => _permanentlyDeleteFromTrash(file) : null,
                 onRestore: widget.mode == FileViewMode.trash ? () => _restoreFromTrash(file) : null,
               )),
@@ -2071,9 +2162,10 @@ class _FolderCard extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onToggleFavorite;
   final VoidCallback? onShare;
+  final VoidCallback? onViewActivity;
   final double? mobileWidth;
 
-  const _FolderCard({required this.folder, required this.onTap, this.onRename, this.onDelete, this.onToggleFavorite, this.onShare, this.mobileWidth});
+  const _FolderCard({required this.folder, required this.onTap, this.onRename, this.onDelete, this.onToggleFavorite, this.onShare, this.onViewActivity, this.mobileWidth});
 
   void _showContextMenu(BuildContext context, Offset position) {
     final items = <PopupMenuEntry<String>>[
@@ -2083,6 +2175,7 @@ class _FolderCard extends StatelessWidget {
         PopupMenuItem(value: 'favorite', child: Row(children: [Icon(folder.isFavorite ? Icons.star : Icons.star_outline, size: 16, color: folder.isFavorite ? AppColors.fileSketch : AppColors.body), const SizedBox(width: 8), Text(folder.isFavorite ? 'Remove from favorites' : 'Add to favorites')])),
       if (onShare != null)
         const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
+                    if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
       if (onDelete != null)
         const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Delete', style: TextStyle(color: AppColors.filePdf))])),
     ];
@@ -2097,6 +2190,7 @@ class _FolderCard extends StatelessWidget {
         case 'rename': onRename?.call();
         case 'favorite': onToggleFavorite?.call();
         case 'share': onShare?.call();
+        case 'activity': onViewActivity?.call();
         case 'delete': onDelete?.call();
       }
     });
@@ -2135,6 +2229,7 @@ class _FolderCard extends StatelessWidget {
                       case 'rename': onRename?.call();
                       case 'favorite': onToggleFavorite?.call();
                       case 'share': onShare?.call();
+        case 'activity': onViewActivity?.call();
                       case 'delete': onDelete?.call();
                     }
                   },
@@ -2145,6 +2240,7 @@ class _FolderCard extends StatelessWidget {
                       PopupMenuItem(value: 'favorite', child: Row(children: [Icon(folder.isFavorite ? Icons.star : Icons.star_outline, size: 16, color: folder.isFavorite ? AppColors.fileSketch : AppColors.body), const SizedBox(width: 8), Text(folder.isFavorite ? 'Remove from favorites' : 'Add to favorites')])),
                     if (onShare != null)
                       const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
+                    if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
                     if (onDelete != null)
                       const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Delete', style: TextStyle(color: AppColors.filePdf))])),
                   ],
@@ -2173,9 +2269,10 @@ class _FileRow extends StatelessWidget {
   final VoidCallback? onToggleFavorite;
   final VoidCallback? onSetReminder;
   final VoidCallback? onShare;
+  final VoidCallback? onViewActivity;
   final bool isMobile;
 
-  const _FileRow({required this.file, this.onTap, this.onDelete, this.onDownload, this.onPermanentDelete, this.onRestore, this.onRename, this.onToggleFavorite, this.onSetReminder, this.onShare, this.isMobile = false});
+  const _FileRow({required this.file, this.onTap, this.onDelete, this.onDownload, this.onPermanentDelete, this.onRestore, this.onRename, this.onToggleFavorite, this.onSetReminder, this.onShare, this.onViewActivity, this.isMobile = false});
 
   void _showContextMenu(BuildContext context, Offset position) {
     final items = <PopupMenuEntry<String>>[
@@ -2187,6 +2284,7 @@ class _FileRow extends StatelessWidget {
         PopupMenuItem(value: 'favorite', child: Row(children: [Icon(file.isFavorite ? Icons.star : Icons.star_outline, size: 16, color: file.isFavorite ? AppColors.fileSketch : AppColors.body), const SizedBox(width: 8), Text(file.isFavorite ? 'Remove from favorites' : 'Add to favorites')])),
       if (onShare != null)
         const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
+                    if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
       if (onSetReminder != null)
         const PopupMenuItem(value: 'reminder', child: Row(children: [Icon(Icons.alarm, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Set reminder')])),
       if (onDelete != null)
@@ -2208,6 +2306,7 @@ class _FileRow extends StatelessWidget {
         case 'rename': onRename?.call();
         case 'favorite': onToggleFavorite?.call();
         case 'share': onShare?.call();
+        case 'activity': onViewActivity?.call();
         case 'reminder': onSetReminder?.call();
         case 'delete': onDelete?.call();
         case 'permanent_delete': onPermanentDelete?.call();
@@ -2281,6 +2380,48 @@ class _FileRow extends StatelessWidget {
               child: Text(file.sizeFormatted, style: TextStyle(fontSize: isMobile ? 11 : 13, color: AppColors.body)),
             ),
             SizedBox(
+              width: isMobile ? 60 : 80,
+              child: Builder(builder: (ctx) {
+                try {
+                  final sync = ctx.watch<SyncService>();
+                  final status = sync.getFileStatus(file.path);
+                  switch (status) {
+                    case FileSyncStatus.synced:
+                      return Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.cloud_done, size: 14, color: AppColors.green700),
+                        const SizedBox(width: 4),
+                        Text('Synced', style: TextStyle(fontSize: isMobile ? 10 : 11, color: AppColors.green700)),
+                      ]);
+                    case FileSyncStatus.syncing:
+                      return Row(mainAxisSize: MainAxisSize.min, children: [
+                        const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.green700)),
+                        const SizedBox(width: 4),
+                        Text('Syncing', style: TextStyle(fontSize: isMobile ? 10 : 11, color: AppColors.green700)),
+                      ]);
+                    case FileSyncStatus.error:
+                      return Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.error_outline, size: 14, color: AppColors.filePdf),
+                        const SizedBox(width: 4),
+                        Text('Error', style: TextStyle(fontSize: isMobile ? 10 : 11, color: AppColors.filePdf)),
+                      ]);
+                    case FileSyncStatus.excluded:
+                      return Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.block, size: 14, color: AppColors.muted),
+                        const SizedBox(width: 4),
+                        Text('Excluded', style: TextStyle(fontSize: isMobile ? 10 : 11, color: AppColors.muted)),
+                      ]);
+                    case FileSyncStatus.pending:
+                      return Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.schedule, size: 14, color: AppColors.muted),
+                        const SizedBox(width: 4),
+                        Text('Pending', style: TextStyle(fontSize: isMobile ? 10 : 11, color: AppColors.muted)),
+                      ]);
+                  }
+                } catch (_) {}
+                return const SizedBox.shrink();
+              }),
+            ),
+            SizedBox(
               width: isMobile ? 36 : 48,
               child: PopupMenuButton<String>(
                 icon: const Icon(Icons.more_horiz, color: AppColors.muted),
@@ -2290,6 +2431,7 @@ class _FileRow extends StatelessWidget {
                     case 'rename': onRename?.call();
                     case 'favorite': onToggleFavorite?.call();
                     case 'share': onShare?.call();
+        case 'activity': onViewActivity?.call();
                     case 'reminder': onSetReminder?.call();
                     case 'delete': onDelete?.call();
                     case 'permanent_delete': onPermanentDelete?.call();
@@ -2301,6 +2443,7 @@ class _FileRow extends StatelessWidget {
                     const PopupMenuItem(value: 'download', child: Row(children: [Icon(Icons.download, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Download')])),
                   if (onShare != null)
                     const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
+                    if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
                   if (onRename != null)
                     const PopupMenuItem(value: 'rename', child: Row(children: [Icon(Icons.edit, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Rename')])),
                   if (onToggleFavorite != null)
@@ -2338,6 +2481,178 @@ class _ReminderChip extends StatelessWidget {
       backgroundColor: AppColors.grey96,
       side: BorderSide.none,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    );
+  }
+}
+
+/// Autocomplete text field for the share sheet.
+/// Queries the Nextcloud autocomplete API with a 300ms debounce.
+class _ShareAutocompleteField extends StatefulWidget {
+  final TextEditingController controller;
+  final String serverUrl;
+  final String basicAuth;
+
+  const _ShareAutocompleteField({
+    required this.controller,
+    required this.serverUrl,
+    required this.basicAuth,
+  });
+
+  @override
+  State<_ShareAutocompleteField> createState() => _ShareAutocompleteFieldState();
+}
+
+class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
+  Timer? _debounce;
+  List<Map<String, dynamic>> _suggestions = [];
+  bool _showSuggestions = false;
+  final LayerLink _layerLink = LayerLink();
+  OverlayEntry? _overlayEntry;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onTextChanged);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _removeOverlay();
+    widget.controller.removeListener(_onTextChanged);
+    super.dispose();
+  }
+
+  void _onTextChanged() {
+    _debounce?.cancel();
+    final query = widget.controller.text.trim();
+    if (query.length < 2) {
+      _removeOverlay();
+      setState(() {
+        _suggestions = [];
+        _showSuggestions = false;
+      });
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      _fetchSuggestions(query);
+    });
+  }
+
+  Future<void> _fetchSuggestions(String query) async {
+    try {
+      final url = Uri.parse(
+        '${widget.serverUrl}/ocs/v2.php/core/autocomplete/get?search=${Uri.encodeQueryComponent(query)}&itemType=file&format=json',
+      );
+      final response = await http.get(url, headers: {
+        'Authorization': widget.basicAuth,
+        'OCS-APIRequest': 'true',
+      });
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final results = (data['ocs']?['data'] as List? ?? [])
+            .cast<Map<String, dynamic>>();
+        if (mounted) {
+          setState(() {
+            _suggestions = results;
+            _showSuggestions = results.isNotEmpty;
+          });
+          if (_showSuggestions) {
+            _showOverlay();
+          } else {
+            _removeOverlay();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Autocomplete error: $e');
+    }
+  }
+
+  void _showOverlay() {
+    _removeOverlay();
+    _overlayEntry = OverlayEntry(
+      builder: (context) => Positioned(
+        width: _getFieldWidth(),
+        child: CompositedTransformFollower(
+          link: _layerLink,
+          showWhenUnlinked: false,
+          offset: const Offset(0, 48),
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: _suggestions.length,
+                itemBuilder: (context, index) {
+                  final item = _suggestions[index];
+                  final id = item['id'] as String? ?? '';
+                  final label = item['label'] as String? ?? id;
+                  final subline = item['subline'] as String? ?? '';
+                  return ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.person_outline, size: 20, color: AppColors.azure47),
+                    title: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                    subtitle: subline.isNotEmpty ? Text(subline, style: const TextStyle(fontSize: 11, color: AppColors.muted)) : null,
+                    onTap: () {
+                      widget.controller.text = id;
+                      widget.controller.selection = TextSelection.fromPosition(
+                        TextPosition(offset: id.length),
+                      );
+                      _removeOverlay();
+                      setState(() {
+                        _suggestions = [];
+                        _showSuggestions = false;
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  double _getFieldWidth() {
+    final renderBox = context.findRenderObject() as RenderBox?;
+    return renderBox?.size.width ?? 300;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: TextField(
+        controller: widget.controller,
+        decoration: InputDecoration(
+          hintText: 'Username or email',
+          filled: true,
+          fillColor: AppColors.grey96,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          suffixIcon: widget.controller.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 16),
+                  onPressed: () {
+                    widget.controller.clear();
+                    _removeOverlay();
+                  },
+                )
+              : null,
+        ),
+        style: const TextStyle(fontSize: 14),
+      ),
     );
   }
 }

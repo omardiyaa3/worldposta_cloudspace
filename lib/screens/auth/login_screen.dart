@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 import '../../config/constants.dart';
 import '../../config/theme.dart';
+import '../../services/account_manager.dart';
 import '../../services/auth_service.dart';
+import '../../main.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -29,16 +32,51 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _startLoginFlow() async {
     setState(() { _isLoading = true; _error = null; });
     try {
+      // Grab references before async gap — widget may unmount after login succeeds
       final auth = context.read<AuthService>();
+      final mgr = context.read<AccountManager>();
+      final nav = Navigator.of(context);
+
       final flow = await auth.initiateLoginFlow();
       final uri = Uri.parse(flow.loginUrl);
       await launchUrl(uri, mode: LaunchMode.externalApplication);
       final success = await auth.pollLoginFlow(flow);
-      if (success && mounted) {
-        // Bring app back to foreground
+      if (success) {
+        // Add account directly — don't depend on mounted/context
         try {
-          await launchUrl(Uri.parse('cloudspace://login-complete'), mode: LaunchMode.externalApplication);
-        } catch (_) {}
+          String? serverUrl, username, userId, appPassword, displayName;
+          if (auth is AuthBridge) {
+            serverUrl = auth.realServerUrl;
+            username = auth.realUsername;
+            userId = auth.realUserId;
+            appPassword = auth.realAppPassword;
+            displayName = auth.realDisplayName;
+          } else {
+            serverUrl = auth.serverUrl;
+            username = auth.username;
+            userId = auth.userId;
+            appPassword = auth.appPassword;
+            displayName = auth.displayName;
+          }
+          if (serverUrl != null && username != null && appPassword != null) {
+            final account = Account(
+              id: const Uuid().v4(),
+              serverUrl: serverUrl,
+              username: username,
+              userId: userId ?? username,
+              appPassword: appPassword,
+              displayName: displayName ?? username,
+            );
+            await mgr.addAccount(account);
+          }
+        } catch (e) {
+          debugPrint('Failed to add account to AccountManager: $e');
+        }
+        if (nav.canPop()) {
+          nav.pop();
+        } else if (mounted) {
+          try { await launchUrl(Uri.parse('cloudspace://login-complete'), mode: LaunchMode.externalApplication); } catch (_) {}
+        }
       }
       if (!success && mounted) {
         setState(() => _error = 'Login timed out. Please try again.');
@@ -58,19 +96,53 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     setState(() { _isLoading = true; _error = null; });
     try {
+      // Grab references before async gap — widget may unmount after login succeeds
       final auth = context.read<AuthService>();
+      final mgr = context.read<AccountManager>();
+      final nav = Navigator.of(context);
+      final username = _usernameController.text.trim();
+      final password = _passwordController.text;
+
       final success = await auth.loginWithCredentials(
         serverUrl: AppConstants.defaultServerUrl,
-        username: _usernameController.text.trim(),
-        password: _passwordController.text,
+        username: username,
+        password: password,
       );
+      if (success) {
+        // Add account directly — don't depend on mounted/context
+        // Read from _real auth to get the NEW account's info, not the old active one
+        try {
+          String? userId, displayName;
+          if (auth is AuthBridge) {
+            userId = auth.realUserId;
+            displayName = auth.realDisplayName;
+          } else {
+            userId = auth.userId;
+            displayName = auth.displayName;
+          }
+          final account = Account(
+            id: const Uuid().v4(),
+            serverUrl: AppConstants.defaultServerUrl,
+            username: username,
+            userId: userId ?? username,
+            appPassword: password,
+            displayName: displayName ?? username,
+          );
+          await mgr.addAccount(account);
+        } catch (e) {
+          debugPrint('Failed to add account to AccountManager: $e');
+        }
+        if (mounted && nav.canPop()) nav.pop();
+      }
       if (!success && mounted) setState(() => _error = 'Invalid credentials.');
     } catch (e) {
+      debugPrint('Manual login error: $e');
       if (mounted) setState(() => _error = 'Connection failed. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

@@ -843,6 +843,44 @@ class WebDavService {
     return chunks;
   }
 
+  /// Get activity feed from the server
+  Future<List<Map<String, dynamic>>> getActivity({int limit = 50}) async {
+    final url = Uri.parse(
+      '${_auth.serverUrl}/ocs/v2.php/apps/activity/api/v2/activity?format=json&limit=$limit',
+    );
+    final response = await http.get(url, headers: {
+      ..._headers,
+      'OCS-APIRequest': 'true',
+    });
+
+    if (response.statusCode != 200) {
+      throw Exception('Get activity failed: ${response.statusCode}');
+    }
+
+    final data = jsonDecode(response.body);
+    final activities = data['ocs']?['data'] as List? ?? [];
+    return activities.cast<Map<String, dynamic>>();
+  }
+
+  /// Get activity for a specific file by file ID
+  Future<List<Map<String, dynamic>>> getFileActivity(String fileId, {int limit = 30}) async {
+    final url = Uri.parse(
+      '${_auth.serverUrl}/ocs/v2.php/apps/activity/api/v2/activity/filter?format=json&limit=$limit&object_type=files&object_id=$fileId',
+    );
+    final response = await http.get(url, headers: {
+      ..._headers,
+      'OCS-APIRequest': 'true',
+    });
+
+    if (response.statusCode != 200) {
+      return []; // Return empty if not supported
+    }
+
+    final data = jsonDecode(response.body);
+    final activities = data['ocs']?['data'] as List? ?? [];
+    return activities.cast<Map<String, dynamic>>();
+  }
+
   /// Search files by name
   Future<List<NcFile>> search(String query) async {
     final url = _buildUri('/');
