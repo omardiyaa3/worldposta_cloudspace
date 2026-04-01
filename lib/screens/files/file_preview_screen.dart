@@ -495,21 +495,24 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
         }
         return Container(
           color: AppColors.white,
-          child: TextField(
-            controller: _textController,
-            maxLines: null,
-            expands: true,
-            textAlignVertical: TextAlignVertical.top,
-            style: const TextStyle(
-              fontSize: 13,
-              fontFamily: 'monospace',
-              color: AppColors.heading,
-              height: 1.5,
-            ),
-            decoration: const InputDecoration(
-              contentPadding: EdgeInsets.all(16),
-              border: InputBorder.none,
-              filled: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: _textController,
+              maxLines: null,
+              keyboardType: TextInputType.multiline,
+              style: const TextStyle(
+                fontSize: 13,
+                fontFamily: 'monospace',
+                color: AppColors.heading,
+                height: 1.5,
+              ),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                filled: false,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
             ),
           ),
         );
