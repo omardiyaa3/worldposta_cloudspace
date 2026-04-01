@@ -302,7 +302,10 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
         title: 'CloudSpace',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
-        home: isLoggedIn ? const HomeShell() : const LoginScreen(),
+        // Key forces full rebuild when account switches, so all widgets pick up new providers
+        home: isLoggedIn
+            ? HomeShell(key: ValueKey(_lastActiveAccountId))
+            : const LoginScreen(),
       ),
     );
   }

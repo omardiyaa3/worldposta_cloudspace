@@ -25,6 +25,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final auth = context.watch<AuthService>();
     final cache = context.watch<DataCacheService>();
 
+    // Show loading while cache fetches data for the first time
+    if (cache.isFirstLoad) {
+      return const Center(child: CircularProgressIndicator(color: AppColors.green700));
+    }
+
     // Derive dashboard data from cache
     final allFiles = cache.rootFiles;
     final recentFiles = cache.recentFiles.where((f) => !f.isDirectory).take(6).toList();
