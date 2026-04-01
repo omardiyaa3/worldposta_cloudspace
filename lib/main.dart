@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
 import 'config/theme.dart';
 import 'services/account_manager.dart';
 import 'services/auth_service.dart';
@@ -9,10 +11,33 @@ import 'services/sync_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home_shell.dart';
 
-void main() {
+final bool _isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
+bool _startMinimized = false;
+
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   HttpOverrides.global = _CloudSpaceHttpOverrides();
+
+  _startMinimized = args.contains('--minimized');
+
+  if (_isDesktop) {
+    await windowManager.ensureInitialized();
+    const windowOptions = WindowOptions(
+      size: Size(1100, 750),
+      minimumSize: Size(400, 300),
+      title: 'CloudSpace',
+    );
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      if (_startMinimized) {
+        await windowManager.hide();
+      } else {
+        await windowManager.show();
+        await windowManager.focus();
+      }
+    });
+  }
 
   runApp(const CloudSpaceApp());
 }
@@ -85,7 +110,7 @@ class CloudSpaceApp extends StatefulWidget {
   State<CloudSpaceApp> createState() => _CloudSpaceAppState();
 }
 
-class _CloudSpaceAppState extends State<CloudSpaceApp> {
+class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, WindowListener {
   final _accountMgr = AccountManager();
   final _authService = AuthService();
   late final AuthBridge _bridge;
@@ -97,6 +122,11 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> {
   void initState() {
     super.initState();
     _bridge = AuthBridge(_accountMgr, _authService);
+    if (_isDesktop) {
+      trayManager.addListener(this);
+      windowManager.addListener(this);
+      windowManager.setPreventClose(true);
+    }
     _init();
   }
 
@@ -110,7 +140,45 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> {
     _accountMgr.addListener(_onAuthChanged);
     _authService.addListener(_onAuthChanged);
     _setupServices();
+    if (_isDesktop) await _initTray();
     setState(() => _initialized = true);
+  }
+
+  Future<void> _initTray() async {
+    // Use app icon for tray
+    await trayManager.setIcon('assets/logo.png', isTemplate: Platform.isMacOS);
+    await trayManager.setToolTip('CloudSpace — Syncing your files');
+    final menu = Menu(items: [
+      MenuItem(label: 'Show CloudSpace', onClick: (_) async {
+        await windowManager.show();
+        await windowManager.focus();
+      }),
+      MenuItem.separator(),
+      MenuItem(label: 'Quit', onClick: (_) async {
+        await trayManager.destroy();
+        await windowManager.setPreventClose(false);
+        await windowManager.close();
+      }),
+    ]);
+    await trayManager.setContextMenu(menu);
+  }
+
+  // Tray icon clicked → show window
+  @override
+  void onTrayIconMouseDown() async {
+    await windowManager.show();
+    await windowManager.focus();
+  }
+
+  @override
+  void onTrayIconRightMouseDown() async {
+    await trayManager.popUpContextMenu();
+  }
+
+  // Window close → hide to tray instead of quitting
+  @override
+  void onWindowClose() async {
+    await windowManager.hide();
   }
 
   String? _lastActiveAccountId;
@@ -142,6 +210,10 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> {
 
   @override
   void dispose() {
+    if (_isDesktop) {
+      trayManager.removeListener(this);
+      windowManager.removeListener(this);
+    }
     _accountMgr.removeListener(_onAuthChanged);
     _authService.removeListener(_onAuthChanged);
     _cache?.dispose();

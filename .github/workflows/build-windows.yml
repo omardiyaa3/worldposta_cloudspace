@@ -22,16 +22,28 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
-      - name: Bundle VC++ runtime DLLs
+      - name: Bundle VC++ runtime DLLs and Media Foundation DLLs
         run: |
           $releaseDir = "build/windows/x64/runner/Release"
-          $vcDir = "C:\Windows\System32"
+          $sysDir = "C:\Windows\System32"
+          # VC++ runtime
           $dlls = @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140_1.dll")
           foreach ($dll in $dlls) {
-            $src = Join-Path $vcDir $dll
+            $src = Join-Path $sysDir $dll
             if (Test-Path $src) {
               Copy-Item $src $releaseDir -Force
               Write-Host "Copied $dll"
+            }
+          }
+          # Media Foundation DLLs (needed by audioplayers; missing on Windows N/KN)
+          $mfDlls = @("MFPlat.DLL", "MFReadWrite.dll", "MF.dll")
+          foreach ($dll in $mfDlls) {
+            $src = Join-Path $sysDir $dll
+            if (Test-Path $src) {
+              Copy-Item $src $releaseDir -Force
+              Write-Host "Copied $dll"
+            } else {
+              Write-Host "WARNING: $dll not found on build machine"
             }
           }
 
@@ -62,6 +74,7 @@ jobs:
           [Icons]
           Name: "{group}\CloudSpace"; Filename: "{app}\CloudSpace.exe"
           Name: "{autodesktop}\CloudSpace"; Filename: "{app}\CloudSpace.exe"
+          Name: "{userstartup}\CloudSpace"; Filename: "{app}\CloudSpace.exe"; Parameters: "--minimized"
 
           [Run]
           Filename: "{app}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated skipifsilent; Check: not VCRedistInstalled

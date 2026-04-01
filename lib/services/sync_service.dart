@@ -804,8 +804,15 @@ class SyncService extends ChangeNotifier {
             currentFile = remote.name;
             currentFileBytes = 0;
             notifyListeners();
-            if (_conflictResolution == ConflictResolution.localWins ||
-                (_conflictResolution == ConflictResolution.newestWins && localMod.isAfter(remoteMod))) {
+            // Respect sync direction for first-sync conflicts
+            final shouldUpload = _syncDirection == SyncDirection.uploadOnly ||
+                (_syncDirection != SyncDirection.downloadOnly &&
+                 (_conflictResolution == ConflictResolution.localWins ||
+                  (_conflictResolution == ConflictResolution.newestWins && localMod.isAfter(remoteMod))));
+            final shouldDownload = _syncDirection == SyncDirection.downloadOnly ||
+                (_syncDirection != SyncDirection.uploadOnly && !shouldUpload);
+
+            if (shouldUpload) {
               _log2('  -> Uploading local version');
               currentFileTotalBytes = localSize;
               totalBytesToSync += localSize;
@@ -814,7 +821,7 @@ class SyncService extends ChangeNotifier {
               totalBytesProcessed += localSize;
               await _recordJournalAfterUpload(fileRemotePath, localFile, remote);
               _lastUploaded++;
-            } else {
+            } else if (shouldDownload) {
               _log2('  -> Downloading server version');
               currentFileTotalBytes = remote.size;
               totalBytesToSync += remote.size;
@@ -824,6 +831,9 @@ class SyncService extends ChangeNotifier {
               totalBytesProcessed += remote.size;
               await _recordJournalAfterDownload(fileRemotePath, destPath, remote);
               _lastDownloaded++;
+            } else {
+              _log2('  -> Skipped (direction restriction)');
+              _setFileStatus(fileRemotePath, FileSyncStatus.pending);
             }
             filesProcessed++;
             notifyListeners();
@@ -980,18 +990,25 @@ class SyncService extends ChangeNotifier {
           await _syncDirectory(entity.path, remoteItemPath);
         } else if (entity is File) {
           // Check journal: if it was in journal before but is now gone from
-          // server, the server-side was deleted.  Respect that (don't re-upload).
+          // server, the server-side was deleted.
           final existingJournal = _journal[remoteItemPath];
           if (existingJournal != null) {
-            // Was synced before, server no longer has it -> server deleted it.
-            _log2('SERVER DELETED: $name — removing local copy');
-            try {
-              await entity.delete();
-            } catch (e) {
-              _log2('  FAIL deleting local: $e');
+            if (_syncDirection == SyncDirection.uploadOnly) {
+              // In uploadOnly mode, re-upload the file to server
+              _log2('SERVER DELETED but uploadOnly: $name — re-uploading');
+              _journal.remove(remoteItemPath);
+              // Fall through to normal upload logic below
+            } else {
+              // Respect server deletion (don't re-upload).
+              _log2('SERVER DELETED: $name — removing local copy');
+              try {
+                await entity.delete();
+              } catch (e) {
+                _log2('  FAIL deleting local: $e');
+              }
+              _journal.remove(remoteItemPath);
+              continue;
             }
-            _journal.remove(remoteItemPath);
-            continue;
           }
 
           final fileSize = await entity.length();

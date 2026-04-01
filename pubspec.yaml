@@ -28,6 +28,8 @@ dependencies:
   desktop_drop: ^0.7.0
   open_filex: ^4.7.0
   flutter_inappwebview: ^6.1.5
+  tray_manager: ^0.2.3
+  window_manager: ^0.4.3
 
 dev_dependencies:
   flutter_test:

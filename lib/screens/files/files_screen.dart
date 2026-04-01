@@ -75,12 +75,23 @@ class _FilesScreenState extends State<FilesScreen> {
 
   bool _cacheListenerPaused = false;
 
+  bool _pendingRefresh = false;
+
   void _onCacheChanged() {
-    // Only reload if not already loading (avoids loops from getFolder->notifyListeners)
-    if (!_isLoading && !_cacheListenerPaused && mounted) {
-      _cacheListenerPaused = true;
-      _loadFiles().whenComplete(() => _cacheListenerPaused = false);
+    if (!mounted) return;
+    if (_isLoading || _cacheListenerPaused) {
+      // Mark pending so we reload once the current load finishes
+      _pendingRefresh = true;
+      return;
     }
+    _cacheListenerPaused = true;
+    _loadFiles().whenComplete(() {
+      _cacheListenerPaused = false;
+      if (_pendingRefresh && mounted) {
+        _pendingRefresh = false;
+        _onCacheChanged();
+      }
+    });
   }
 
   @override
@@ -312,9 +323,9 @@ class _FilesScreenState extends State<FilesScreen> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
       await webdav.createDirectory('$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$name');
-      // Invalidate cache so the new folder appears immediately
+      // Clear just this folder's cache, then reload once
       if (mounted) {
-        context.read<DataCacheService>().refresh();
+        context.read<DataCacheService>().clearFolderCache(_currentPath);
       }
       await _loadFiles();
       if (mounted) {
@@ -386,9 +397,9 @@ class _FilesScreenState extends State<FilesScreen> {
       final remotePath = '$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$fileName';
       // Create an empty file on the server
       await webdav.uploadFile(remotePath, Uint8List(0));
-      // Invalidate cache so the new file appears
+      // Clear just this folder's cache, then reload once
       if (mounted) {
-        context.read<DataCacheService>().refresh();
+        context.read<DataCacheService>().clearFolderCache(_currentPath);
       }
       await _loadFiles();
       if (mounted) {
@@ -1859,9 +1870,12 @@ class _FilesScreenState extends State<FilesScreen> {
             color: AppColors.green700,
             onRefresh: () async {
               try {
+                _cacheListenerPaused = true;
                 final cache = context.read<DataCacheService>();
                 await cache.refresh();
-              } catch (_) {}
+              } catch (_) {} finally {
+                _cacheListenerPaused = false;
+              }
               await _loadFiles();
             },
             child: _isLoading
