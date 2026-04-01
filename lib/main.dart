@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -29,7 +31,8 @@ void main(List<String> args) async {
       minimumSize: Size(400, 300),
       title: 'CloudSpace',
     );
-    windowManager.waitUntilReadyToShow(windowOptions, () async {
+    await windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.setPreventClose(true);
       if (_startMinimized) {
         await windowManager.hide();
       } else {
@@ -125,7 +128,6 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
     if (_isDesktop) {
       trayManager.addListener(this);
       windowManager.addListener(this);
-      windowManager.setPreventClose(true);
     }
     _init();
   }
@@ -144,23 +146,78 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
     setState(() => _initialized = true);
   }
 
+  Future<String> _resolveTrayIcon() async {
+    try {
+      final byteData = await rootBundle.load('assets/logo.png');
+      final tempDir = await getTemporaryDirectory();
+      final ext = Platform.isWindows ? 'ico' : 'png';
+      final iconFile = File('${tempDir.path}/cloudspace_tray.$ext');
+      if (Platform.isWindows) {
+        // Create a minimal .ico from the PNG data
+        final pngBytes = byteData.buffer.asUint8List();
+        final icoBytes = _pngToIco(pngBytes);
+        await iconFile.writeAsBytes(icoBytes);
+      } else {
+        await iconFile.writeAsBytes(byteData.buffer.asUint8List());
+      }
+      debugPrint('Tray icon written to: ${iconFile.path}');
+      return iconFile.path;
+    } catch (e) {
+      debugPrint('Failed to resolve tray icon: $e');
+      return 'assets/logo.png';
+    }
+  }
+
+  /// Wrap a PNG in a minimal ICO container for Windows tray.
+  List<int> _pngToIco(List<int> pngBytes) {
+    final size = pngBytes.length;
+    // ICO header: 6 bytes
+    // ICO dir entry: 16 bytes
+    // Then the PNG data
+    final ico = <int>[];
+    // Header: reserved=0, type=1(icon), count=1
+    ico.addAll([0, 0, 1, 0, 1, 0]);
+    // Dir entry: width=0(256), height=0(256), colors=0, reserved=0
+    ico.addAll([0, 0, 0, 0]);
+    // Planes=1 (little-endian 16-bit)
+    ico.addAll([1, 0]);
+    // Bits per pixel=32 (little-endian 16-bit)
+    ico.addAll([32, 0]);
+    // Size of PNG data (little-endian 32-bit)
+    ico.add(size & 0xFF);
+    ico.add((size >> 8) & 0xFF);
+    ico.add((size >> 16) & 0xFF);
+    ico.add((size >> 24) & 0xFF);
+    // Offset to PNG data = 6 + 16 = 22 (little-endian 32-bit)
+    ico.addAll([22, 0, 0, 0]);
+    // PNG data
+    ico.addAll(pngBytes);
+    return ico;
+  }
+
   Future<void> _initTray() async {
-    // Use app icon for tray
-    await trayManager.setIcon('assets/logo.png', isTemplate: Platform.isMacOS);
-    await trayManager.setToolTip('CloudSpace — Syncing your files');
-    final menu = Menu(items: [
-      MenuItem(label: 'Show CloudSpace', onClick: (_) async {
-        await windowManager.show();
-        await windowManager.focus();
-      }),
-      MenuItem.separator(),
-      MenuItem(label: 'Quit', onClick: (_) async {
-        await trayManager.destroy();
-        await windowManager.setPreventClose(false);
-        await windowManager.close();
-      }),
-    ]);
-    await trayManager.setContextMenu(menu);
+    try {
+      final iconPath = await _resolveTrayIcon();
+      // isTemplate: false — show the actual colored logo, not a monochrome silhouette
+      await trayManager.setIcon(iconPath, isTemplate: false);
+      await trayManager.setToolTip('CloudSpace — Syncing your files');
+      final menu = Menu(items: [
+        MenuItem(label: 'Show CloudSpace', onClick: (_) async {
+          await windowManager.show();
+          await windowManager.focus();
+        }),
+        MenuItem.separator(),
+        MenuItem(label: 'Quit', onClick: (_) async {
+          await trayManager.destroy();
+          await windowManager.setPreventClose(false);
+          await windowManager.close();
+        }),
+      ]);
+      await trayManager.setContextMenu(menu);
+      debugPrint('Tray initialized successfully');
+    } catch (e) {
+      debugPrint('Failed to initialize tray: $e');
+    }
   }
 
   // Tray icon clicked → show window

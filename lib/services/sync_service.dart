@@ -657,11 +657,18 @@ class SyncService extends ChangeNotifier {
     _log2('--- Syncing dir: local=$localPath remote=$remotePath');
 
     final localDir = Directory(localPath);
+
+    // In uploadOnly mode, only process directories that exist locally
+    if (_syncDirection == SyncDirection.uploadOnly && !await localDir.exists()) {
+      _log2('SKIP dir (uploadOnly, no local dir): $remotePath');
+      return;
+    }
+
     if (!await localDir.exists()) {
       await localDir.create(recursive: true);
     }
 
-    // Get remote listing
+    // Get remote listing (needed even in uploadOnly to detect conflicts/journal matches)
     List<NcFile> remoteItems;
     try {
       remoteItems = await _webdav.listFiles(remotePath);
@@ -1092,6 +1099,27 @@ class SyncService extends ChangeNotifier {
     required String localPath,
     required _JournalEntry journalEntry,
   }) async {
+    // Direction overrides conflict resolution
+    if (_syncDirection == SyncDirection.uploadOnly) {
+      _log2('  Conflict resolution: uploadOnly — always upload local');
+      await _retryOperation('upload ${remote.name}',
+          () => _uploadFile(localFile.path, remote.path));
+      await _recordJournalAfterUpload(remote.path, localFile, remote);
+      _lastUploaded++;
+      return;
+    }
+    if (_syncDirection == SyncDirection.downloadOnly) {
+      _log2('  Conflict resolution: downloadOnly — always download remote');
+      await _retryOperation(
+          'download ${remote.name}',
+          () => _downloadWithResume(
+              remote.path, localFile.path, remote.size));
+      await _recordJournalAfterDownload(
+          remote.path, localFile.path, remote);
+      _lastDownloaded++;
+      return;
+    }
+
     switch (_conflictResolution) {
       case ConflictResolution.serverWins:
         _log2('  Conflict resolution: server wins — downloading');
