@@ -96,6 +96,47 @@ class DataCacheService extends ChangeNotifier {
     }
   }
 
+  Future<void> refreshTrash() async {
+    try {
+      trashFiles = await _webdav.listTrash();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('refreshTrash error: $e');
+    }
+  }
+
+  Future<void> refreshShared() async {
+    try {
+      final results = await Future.wait([
+        _webdav.listSharedWithMe(),
+        _webdav.listSharedByMe(),
+      ]);
+      sharedWithMe = results[0] as List<NcFile>;
+      sharedByMe = results[1] as List<NcFile>;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('refreshShared error: $e');
+    }
+  }
+
+  Future<void> refreshStarred() async {
+    try {
+      starredFiles = await _webdav.listFavorites();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('refreshStarred error: $e');
+    }
+  }
+
+  Future<void> refreshRecent() async {
+    try {
+      recentFiles = await _webdav.listRecent();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('refreshRecent error: $e');
+    }
+  }
+
   Future<List<NcFile>> getFolder(String path) async {
     if (_folderCache.containsKey(path)) {
       // Return cached data immediately, refresh in background

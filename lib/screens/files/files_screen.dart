@@ -454,15 +454,15 @@ class _FilesScreenState extends State<FilesScreen> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
       await webdav.delete(file.path);
-      // Invalidate cache so stale data is not shown
       if (mounted) {
-        context.read<DataCacheService>().refresh();
-      }
-      await _loadFiles();
-      if (mounted) {
+        setState(() {
+          _files.removeWhere((f) => f.path == file.path);
+          _applyFilterAndSort();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${file.name} deleted'), backgroundColor: AppColors.green700),
         );
+        context.read<DataCacheService>().clearFolderCache(_currentPath);
       }
     } catch (e) {
       if (mounted) {
@@ -492,8 +492,11 @@ class _FilesScreenState extends State<FilesScreen> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
       await webdav.deleteFromTrash(file.path);
-      await _loadFiles();
       if (mounted) {
+        setState(() {
+          _files.removeWhere((f) => f.path == file.path);
+          _applyFilterAndSort();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${file.name} permanently deleted'), backgroundColor: AppColors.green700),
         );
@@ -513,15 +516,17 @@ class _FilesScreenState extends State<FilesScreen> {
       final originalLocation = file.ownerDisplayName ?? file.name;
       debugPrint('Restoring trash item: path=${file.path}, originalLocation=$originalLocation');
       await webdav.restoreFromTrash(file.path, originalLocation, isDirectory: file.isDirectory);
-      // Invalidate cache so restored file shows up in file listing
       if (mounted) {
-        context.read<DataCacheService>().refresh();
-      }
-      await _loadFiles();
-      if (mounted) {
+        // Remove from local list immediately for instant feedback
+        setState(() {
+          _files.removeWhere((f) => f.path == file.path);
+          _applyFilterAndSort();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${file.name} restored'), backgroundColor: AppColors.green700),
         );
+        // Refresh just trash in background
+        context.read<DataCacheService>().refreshTrash();
       }
     } catch (e) {
       if (mounted) {
@@ -557,8 +562,9 @@ class _FilesScreenState extends State<FilesScreen> {
       final webdav = WebDavService(auth);
       final newPath = '${file.parentPath}/$newName';
       await webdav.move(file.path, newPath);
-      await _loadFiles();
       if (mounted) {
+        context.read<DataCacheService>().clearFolderCache(_currentPath);
+        await _loadFiles();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Renamed to $newName'), backgroundColor: AppColors.green700),
         );
@@ -582,10 +588,13 @@ class _FilesScreenState extends State<FilesScreen> {
       final destPath = '$destination${destination.endsWith('/') ? '' : '/'}${file.name}';
       await webdav.move(file.path, destPath);
       if (mounted) {
+        setState(() {
+          _files.removeWhere((f) => f.path == file.path);
+          _applyFilterAndSort();
+        });
         context.read<DataCacheService>().clearFolderCache(_currentPath);
         context.read<DataCacheService>().clearFolderCache(destination);
       }
-      await _loadFiles();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Moved "${file.name}" to $destination'), backgroundColor: AppColors.green700),
@@ -602,15 +611,24 @@ class _FilesScreenState extends State<FilesScreen> {
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
-      await webdav.toggleFavorite(file.path, !file.isFavorite);
-      await _loadFiles();
+      final newFav = !file.isFavorite;
+      await webdav.toggleFavorite(file.path, newFav);
       if (mounted) {
+        // Update locally instantly
+        final idx = _files.indexWhere((f) => f.path == file.path);
+        if (idx >= 0) {
+          setState(() {
+            _files[idx] = _files[idx].copyWith(isFavorite: newFav);
+            _applyFilterAndSort();
+          });
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(file.isFavorite ? 'Removed from favorites' : 'Added to favorites'),
             backgroundColor: AppColors.green700,
           ),
         );
+        context.read<DataCacheService>().refreshStarred();
       }
     } catch (e) {
       if (mounted) {

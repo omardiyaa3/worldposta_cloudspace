@@ -40,6 +40,20 @@ class NcFile {
     return '${(size / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
+  NcFile copyWith({bool? isFavorite, String? name, String? path}) => NcFile(
+    path: path ?? this.path,
+    name: name ?? this.name,
+    isDirectory: isDirectory,
+    size: size,
+    lastModified: lastModified,
+    etag: etag,
+    fileId: fileId,
+    contentType: contentType,
+    permissions: permissions,
+    isFavorite: isFavorite ?? this.isFavorite,
+    ownerDisplayName: ownerDisplayName,
+  );
+
   String get parentPath {
     final parts = path.split('/');
     parts.removeLast();
