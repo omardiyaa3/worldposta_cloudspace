@@ -93,9 +93,10 @@ class _FilesScreenState extends State<FilesScreen> {
 
   bool _cacheListenerPaused = false;
 
+  bool _loadInProgress = false;
+
   void _onCacheChanged() {
-    if (!mounted || _cacheListenerPaused) return;
-    // Always reload — _loadFiles handles its own _isLoading state
+    if (!mounted || _cacheListenerPaused || _loadInProgress) return;
     _loadFiles();
   }
 
@@ -108,6 +109,9 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> _loadFiles() async {
+    if (_loadInProgress) return;
+    _loadInProgress = true;
+
     // First load: full spinner. Subsequent loads: subtle refresh indicator.
     if (_files.isEmpty && !_isRefreshing) {
       setState(() { _isLoading = true; _error = null; });
@@ -161,12 +165,13 @@ class _FilesScreenState extends State<FilesScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          // Only show error if we have nothing to display
           if (_files.isEmpty) _error = _friendlyError(e);
           _isLoading = false;
           _isRefreshing = false;
         });
       }
+    } finally {
+      _loadInProgress = false;
     }
   }
 
