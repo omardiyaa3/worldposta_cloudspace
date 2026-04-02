@@ -96,6 +96,32 @@ class DataCacheService extends ChangeNotifier {
     }
   }
 
+  Future<void> refreshFolder(String path) async {
+    try {
+      final files = await _webdav.listFiles(path);
+      _folderCache[path] = files;
+      if (path == '/') rootFiles = files;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('refreshFolder error: $e');
+    }
+  }
+
+  Future<void> refreshQuota() async {
+    try {
+      quota = await _webdav.getQuota();
+      final used = (quota['used'] as int?) ?? 0;
+      final total = (quota['total'] as int?) ?? -1;
+      if (total > 0) {
+        final ratio = used / total;
+        quotaWarningLevel = ratio >= 0.9 ? 'critical' : ratio >= 0.8 ? 'warning' : 'ok';
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('refreshQuota error: $e');
+    }
+  }
+
   Future<void> refreshTrash() async {
     try {
       trashFiles = await _webdav.listTrash();

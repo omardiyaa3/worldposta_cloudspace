@@ -369,8 +369,24 @@ class _HomeShellState extends State<HomeShell> {
                     onRefreshTap: () async {
                       try {
                         final cache = context.read<DataCacheService>();
-                        cache.clearFolderCache(_currentFilesPath);
-                        await cache.refresh();
+                        // Refresh current tab immediately
+                        switch (_currentRoute) {
+                          case 'files':
+                            cache.clearFolderCache(_currentFilesPath);
+                            await cache.refreshFolder(_currentFilesPath);
+                          case 'shared':
+                            await cache.refreshShared();
+                          case 'recent':
+                            await cache.refreshRecent();
+                          case 'starred':
+                            await cache.refreshStarred();
+                          case 'trash':
+                            await cache.refreshTrash();
+                          default:
+                            await cache.refreshQuota();
+                        }
+                        // Then refresh everything else in the background
+                        cache.refresh();
                       } catch (_) {}
                     },
                     onSearch: (query) {
