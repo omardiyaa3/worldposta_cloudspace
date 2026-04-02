@@ -213,7 +213,11 @@ class _FilesScreenState extends State<FilesScreen> {
 
   void _navigateToFolder(NcFile folder) {
     if (widget.mode != FileViewMode.files) return;
-    setState(() => _currentPath = folder.path);
+    setState(() {
+      _currentPath = folder.path;
+      _files = [];
+      _filteredFiles = [];
+    });
     widget.onPathChanged?.call(folder.path);
     _loadFiles();
   }
@@ -221,7 +225,11 @@ class _FilesScreenState extends State<FilesScreen> {
   void _navigateToBreadcrumb(int index) {
     final parts = _currentPath.split('/').where((p) => p.isNotEmpty).toList();
     final newPath = '/${parts.sublist(0, index + 1).join('/')}';
-    setState(() => _currentPath = newPath);
+    setState(() {
+      _currentPath = newPath;
+      _files = [];
+      _filteredFiles = [];
+    });
     widget.onPathChanged?.call(newPath);
     _loadFiles();
   }
