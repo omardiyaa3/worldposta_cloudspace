@@ -35,7 +35,7 @@ class DataCacheService extends ChangeNotifier {
   }
 
   Future<void> init() async {
-    _loadAll();
+    await _loadAll();
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadAll());
   }
 
