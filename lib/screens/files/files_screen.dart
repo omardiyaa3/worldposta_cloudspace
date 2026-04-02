@@ -1984,15 +1984,8 @@ class _FilesScreenState extends State<FilesScreen> {
                       ])
                     : Column(
                         children: [
-                          Builder(builder: (ctx) {
-                            try {
-                              final cache = ctx.watch<DataCacheService>();
-                              if (cache.isRefreshing) {
-                                return const LinearProgressIndicator(color: AppColors.green700, backgroundColor: AppColors.grey91, minHeight: 2);
-                              }
-                            } catch (_) {}
-                            return const SizedBox.shrink();
-                          }),
+                          if (_isRefreshing)
+                            const LinearProgressIndicator(color: AppColors.green700, backgroundColor: AppColors.grey91, minHeight: 2),
                           Expanded(
                             child: _filteredFiles.isEmpty
                                 ? _buildEmptyState()

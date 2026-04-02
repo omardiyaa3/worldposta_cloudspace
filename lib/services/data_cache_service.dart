@@ -54,54 +54,55 @@ class DataCacheService extends ChangeNotifier {
 
   Future<void> _loadAll() async {
     try {
-      final results = await Future.wait([
-        _webdav.listFiles('/'),         // 0
-        _webdav.getQuota(),             // 1
-        _webdav.listRecent(),           // 2
-        _webdav.listSharedWithMe(),     // 3
-        _webdav.listSharedByMe(),       // 4
-        _webdav.listFavorites(),        // 5
-        _webdav.listTrash(),            // 6
-        _webdav.getActivity(),          // 7
+      // Phase 1: quota + root files — enough to show dashboard immediately
+      final phase1 = await Future.wait([
+        _webdav.listFiles('/'),
+        _webdav.getQuota(),
       ]);
 
-      rootFiles = results[0] as List<NcFile>;
-      quota = results[1] as Map<String, dynamic>;
-      recentFiles = results[2] as List<NcFile>;
-      sharedWithMe = results[3] as List<NcFile>;
-      sharedByMe = results[4] as List<NcFile>;
-      starredFiles = results[5] as List<NcFile>;
-      trashFiles = results[6] as List<NcFile>;
-      activityFeed = results[7] as List<Map<String, dynamic>>;
-
-      // Compute quota warning level
-      final used = (quota['used'] as int?) ?? 0;
-      final total = (quota['total'] as int?) ?? -1;
-      if (total > 0) {
-        final ratio = used / total;
-        if (ratio >= 0.9) {
-          quotaWarningLevel = 'critical';
-        } else if (ratio >= 0.8) {
-          quotaWarningLevel = 'warning';
-        } else {
-          quotaWarningLevel = 'ok';
-        }
-      } else {
-        quotaWarningLevel = 'ok';
-      }
-
-      // Also store root in folder cache
+      rootFiles = phase1[0] as List<NcFile>;
+      quota = phase1[1] as Map<String, dynamic>;
       _folderCache['/'] = rootFiles;
+      _updateQuotaWarning();
 
       isFirstLoad = false;
-      notifyListeners();
+      notifyListeners(); // Dashboard can render now
+
+      // Phase 2: everything else in background
+      final phase2 = await Future.wait([
+        _webdav.listRecent(),
+        _webdav.listSharedWithMe(),
+        _webdav.listSharedByMe(),
+        _webdav.listFavorites(),
+        _webdav.listTrash(),
+        _webdav.getActivity(),
+      ]);
+
+      recentFiles = phase2[0] as List<NcFile>;
+      sharedWithMe = phase2[1] as List<NcFile>;
+      sharedByMe = phase2[2] as List<NcFile>;
+      starredFiles = phase2[3] as List<NcFile>;
+      trashFiles = phase2[4] as List<NcFile>;
+      activityFeed = phase2[5] as List<Map<String, dynamic>>;
+
+      notifyListeners(); // Other tabs can render now
     } catch (e) {
       debugPrint('DataCacheService._loadAll error: $e');
-      // On first load failure, still mark as done so UI isn't stuck
       if (isFirstLoad) {
         isFirstLoad = false;
         notifyListeners();
       }
+    }
+  }
+
+  void _updateQuotaWarning() {
+    final used = (quota['used'] as int?) ?? 0;
+    final total = (quota['total'] as int?) ?? -1;
+    if (total > 0) {
+      final ratio = used / total;
+      quotaWarningLevel = ratio >= 0.9 ? 'critical' : ratio >= 0.8 ? 'warning' : 'ok';
+    } else {
+      quotaWarningLevel = 'ok';
     }
   }
 
@@ -128,12 +129,7 @@ class DataCacheService extends ChangeNotifier {
     notifyListeners();
     try {
       quota = await _webdav.getQuota();
-      final used = (quota['used'] as int?) ?? 0;
-      final total = (quota['total'] as int?) ?? -1;
-      if (total > 0) {
-        final ratio = used / total;
-        quotaWarningLevel = ratio >= 0.9 ? 'critical' : ratio >= 0.8 ? 'warning' : 'ok';
-      }
+      _updateQuotaWarning();
     } catch (e) {
       debugPrint('refreshQuota error: $e');
     }
