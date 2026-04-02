@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/nc_file.dart';
 import 'auth_service.dart';
 import 'webdav_service.dart';
@@ -35,7 +37,10 @@ class DataCacheService extends ChangeNotifier {
   }
 
   Future<void> init() async {
-    await _loadAll();
+    // Load cached quota from disk for instant dashboard render
+    await _loadCachedQuota();
+    // Fetch fresh data from server
+    _loadAll();
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadAll());
   }
 
@@ -55,6 +60,28 @@ class DataCacheService extends ChangeNotifier {
     notifyListeners();
   }
 
+  String get _cacheKey => 'quota_cache_${_auth.userId ?? ''}';
+
+  Future<void> _loadCachedQuota() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      if (raw != null) {
+        quota = json.decode(raw) as Map<String, dynamic>;
+        _updateQuotaWarning();
+        isFirstLoad = false;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveCachedQuota() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cacheKey, json.encode(quota));
+    } catch (_) {}
+  }
+
   Future<void> _loadAll() async {
     try {
       // Phase 1: quota + root files + recent — enough to show dashboard
@@ -72,6 +99,7 @@ class DataCacheService extends ChangeNotifier {
 
       isFirstLoad = false;
       _phase2Done = false;
+      _saveCachedQuota(); // Persist for instant dashboard on next launch
       notifyListeners(); // Dashboard can render now
 
       // Phase 2: everything else in background

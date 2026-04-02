@@ -12,6 +12,13 @@ import 'auth_service.dart';
 
 class WebDavService {
   final AuthService _auth;
+  static http.Client? _sharedClient;
+
+  /// Reuse a single HTTP client for connection pooling (one TLS handshake)
+  http.Client get _client {
+    _sharedClient ??= http.Client();
+    return _sharedClient!;
+  }
 
   WebDavService(this._auth);
 
@@ -54,7 +61,7 @@ class WebDavService {
   <d:prop><d:getetag/></d:prop>
 </d:propfind>''';
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
     if (response.statusCode != 207) return null;
 
@@ -92,7 +99,7 @@ class WebDavService {
   </d:prop>
 </d:propfind>''';
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode != 207) {
@@ -193,7 +200,7 @@ class WebDavService {
   /// Download a file (small files, loads into memory)
   Future<Uint8List> downloadFile(String remotePath) async {
     final url = _buildUri(remotePath);
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
 
     if (response.statusCode != 200) {
       throw Exception('Download failed: ${response.statusCode}');
@@ -208,7 +215,7 @@ class WebDavService {
     final request = http.Request('GET', url);
     request.headers.addAll(_headers);
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     if (streamedResponse.statusCode != 200) {
       throw Exception('Download failed: ${streamedResponse.statusCode}');
     }
@@ -267,7 +274,7 @@ class WebDavService {
       onError: (e) => request.sink.addError(e),
     );
 
-    final response = await request.send();
+    final response = await _client.send(request);
     if (response.statusCode != 201 &&
         response.statusCode != 204 &&
         response.statusCode != 200) {
@@ -288,7 +295,7 @@ class WebDavService {
     final request = http.Request('MKCOL', url);
     request.headers.addAll(_headers);
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     if (streamedResponse.statusCode != 201 &&
         streamedResponse.statusCode != 405) {
       // 405 = already exists, which is fine
@@ -299,7 +306,7 @@ class WebDavService {
   /// Delete a file or directory
   Future<void> delete(String remotePath) async {
     final url = _buildUri(remotePath);
-    final response = await http.delete(url, headers: _headers);
+    final response = await _client.delete(url, headers: _headers);
 
     if (response.statusCode != 204 && response.statusCode != 200) {
       throw Exception('Delete failed: ${response.statusCode}');
@@ -315,7 +322,7 @@ class WebDavService {
     request.headers['Destination'] = destUrl.toString();
     request.headers['Overwrite'] = 'F';
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     if (streamedResponse.statusCode != 201 &&
         streamedResponse.statusCode != 204) {
       throw Exception('Move failed: ${streamedResponse.statusCode}');
@@ -337,7 +344,7 @@ class WebDavService {
   </d:set>
 </d:propertyupdate>''';
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     if (streamedResponse.statusCode != 207) {
       throw Exception('Toggle favorite failed: ${streamedResponse.statusCode}');
     }
@@ -358,7 +365,7 @@ class WebDavService {
   </d:prop>
 </d:propfind>''';
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode != 207) {
@@ -420,7 +427,7 @@ class WebDavService {
   </oc:filter-rules>
 </oc:filter-files>''';
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
     if (response.statusCode != 207) {
       throw Exception('List favorites failed: ${response.statusCode}');
@@ -444,7 +451,7 @@ class WebDavService {
   <oc:filter-rules/>
 </oc:filter-files>''';
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
 
     List<NcFile> files;
@@ -502,7 +509,7 @@ class WebDavService {
   </d:prop>
 </d:propfind>''';
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
     if (response.statusCode != 207) {
       throw Exception('List trash failed: ${response.statusCode}');
@@ -599,7 +606,7 @@ class WebDavService {
   Future<void> deleteFromTrash(String trashItemPath) async {
     final trashDavPath = '/remote.php/dav/trashbin/${_auth.userId}/trash/$trashItemPath';
     final url = _buildCustomDavUri(trashDavPath);
-    final response = await http.delete(url, headers: _headers);
+    final response = await _client.delete(url, headers: _headers);
 
     if (response.statusCode != 204 && response.statusCode != 200) {
       throw Exception('Permanent delete failed: ${response.statusCode}');
@@ -623,7 +630,7 @@ class WebDavService {
     request.headers['Destination'] = destUrlStr;
     request.headers['Overwrite'] = 'T';
 
-    final response = await request.send();
+    final response = await _client.send(request);
     final body = await response.stream.bytesToString();
     debugPrint('Restore response: ${response.statusCode} $body');
 
@@ -641,7 +648,7 @@ class WebDavService {
     final url = Uri.parse(
       '${_auth.serverUrl}${AppConstants.sharesPath}?shared_with_me=true&format=json',
     );
-    final response = await http.get(url, headers: {
+    final response = await _client.get(url, headers: {
       ..._headers,
       'OCS-APIRequest': 'true',
     });
@@ -669,7 +676,7 @@ class WebDavService {
     final url = Uri.parse(
       '${_auth.serverUrl}${AppConstants.sharesPath}?format=json',
     );
-    final response = await http.get(url, headers: {
+    final response = await _client.get(url, headers: {
       ..._headers,
       'OCS-APIRequest': 'true',
     });
@@ -864,7 +871,7 @@ class WebDavService {
     final url = Uri.parse(
       '${_auth.serverUrl}/ocs/v2.php/apps/activity/api/v2/activity?format=json&limit=$limit',
     );
-    final response = await http.get(url, headers: {
+    final response = await _client.get(url, headers: {
       ..._headers,
       'OCS-APIRequest': 'true',
     });
@@ -883,7 +890,7 @@ class WebDavService {
     final url = Uri.parse(
       '${_auth.serverUrl}/ocs/v2.php/apps/activity/api/v2/activity/filter?format=json&limit=$limit&object_type=files&object_id=$fileId',
     );
-    final response = await http.get(url, headers: {
+    final response = await _client.get(url, headers: {
       ..._headers,
       'OCS-APIRequest': 'true',
     });
@@ -909,7 +916,7 @@ class WebDavService {
   <oc:filter-rules/>
 </oc:filter-files>''';
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await _client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode == 207) {
