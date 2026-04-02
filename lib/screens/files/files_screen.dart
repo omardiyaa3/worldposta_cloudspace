@@ -53,6 +53,23 @@ class _FilesScreenState extends State<FilesScreen> {
   int _downloadTotalBytes = 0;
   String? _error;
   String _searchQuery = '';
+
+  /// Clean up raw exceptions into user-friendly messages.
+  String _friendlyError(Object e) {
+    final s = e.toString();
+    if (s.contains('SocketException') || s.contains('ClientException') || s.contains('HandshakeException')) {
+      return 'Connection lost. Check your internet and try again.';
+    }
+    if (s.contains('TimeoutException') || s.contains('timed out')) {
+      return 'Request timed out. Please try again.';
+    }
+    if (s.contains('403')) return 'Access denied.';
+    if (s.contains('404')) return 'Not found on server.';
+    if (s.contains('500') || s.contains('502') || s.contains('503')) return 'Server error. Try again later.';
+    // Truncate long messages
+    if (s.length > 80) return '${s.substring(0, 80)}...';
+    return s;
+  }
   SortColumn _sortColumn = SortColumn.name;
   SortDir _sortDir = SortDir.asc;
   bool _showSharedByMe = false;
@@ -141,7 +158,7 @@ class _FilesScreenState extends State<FilesScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Failed to load: $e';
+          _error = _friendlyError(e);
           _isLoading = false;
         });
       }
@@ -283,7 +300,7 @@ class _FilesScreenState extends State<FilesScreen> {
       if (mounted) setState(() => _isUploading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.filePdf),
+          SnackBar(content: Text('Upload failed: ${_friendlyError(e)}'), backgroundColor: AppColors.filePdf),
         );
       }
     }
@@ -335,7 +352,7 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_friendlyError(e))));
       }
     }
   }
@@ -422,7 +439,7 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_friendlyError(e))));
       }
     }
   }
@@ -462,7 +479,7 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: ${_friendlyError(e)}')));
       }
     }
   }
@@ -496,7 +513,7 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: ${_friendlyError(e)}')));
       }
     }
   }
@@ -508,7 +525,7 @@ class _FilesScreenState extends State<FilesScreen> {
       // ownerDisplayName stores the original location for trash items
       final originalLocation = file.ownerDisplayName ?? file.name;
       debugPrint('Restoring trash item: path=${file.path}, originalLocation=$originalLocation');
-      await webdav.restoreFromTrash(file.path, originalLocation);
+      await webdav.restoreFromTrash(file.path, originalLocation, isDirectory: file.isDirectory);
       // Invalidate cache so restored file shows up in file listing
       if (mounted) {
         context.read<DataCacheService>().refresh();
@@ -521,7 +538,7 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restore failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restore failed: ${_friendlyError(e)}')));
       }
     }
   }
@@ -561,7 +578,7 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rename failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rename failed: ${_friendlyError(e)}')));
       }
     }
   }
@@ -589,7 +606,7 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Move failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Move failed: ${_friendlyError(e)}')));
       }
     }
   }
@@ -610,7 +627,7 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_friendlyError(e))));
       }
     }
   }
@@ -729,7 +746,7 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Reminder failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Reminder failed: ${_friendlyError(e)}')));
       }
     }
   }
@@ -1538,7 +1555,7 @@ class _FilesScreenState extends State<FilesScreen> {
         Navigator.of(context).pop();
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Download failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Download failed: ${_friendlyError(e)}')));
       }
     } finally {
       if (mounted) setState(() { _isDownloading = false; _downloadingFileName = ''; });

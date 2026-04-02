@@ -33,6 +33,7 @@ class _HomeShellState extends State<HomeShell> {
   String _currentRoute = 'dashboard';
   String _searchQuery = '';
   String _currentFilesPath = '/';
+  int _refreshKey = 0;
 
   void _showNewMenu() {
     showModalBottomSheet(
@@ -290,15 +291,15 @@ class _HomeShellState extends State<HomeShell> {
           onNavigateToFiles: () => setState(() => _currentRoute = 'files'),
         );
       case 'files':
-        return FilesScreen(key: ValueKey('files_$_searchQuery'), mode: FileViewMode.files, searchQuery: _searchQuery, onPathChanged: (p) => _currentFilesPath = p);
+        return FilesScreen(key: ValueKey('files_${_searchQuery}_$_refreshKey'), mode: FileViewMode.files, searchQuery: _searchQuery, onPathChanged: (p) => _currentFilesPath = p);
       case 'shared':
-        return FilesScreen(key: const ValueKey('shared'), mode: FileViewMode.shared);
+        return FilesScreen(key: ValueKey('shared_$_refreshKey'), mode: FileViewMode.shared);
       case 'recent':
-        return FilesScreen(key: const ValueKey('recent'), mode: FileViewMode.recent);
+        return FilesScreen(key: ValueKey('recent_$_refreshKey'), mode: FileViewMode.recent);
       case 'starred':
-        return FilesScreen(key: const ValueKey('starred'), mode: FileViewMode.starred);
+        return FilesScreen(key: ValueKey('starred_$_refreshKey'), mode: FileViewMode.starred);
       case 'trash':
-        return FilesScreen(key: const ValueKey('trash'), mode: FileViewMode.trash);
+        return FilesScreen(key: ValueKey('trash_$_refreshKey'), mode: FileViewMode.trash);
       case 'activity':
         return const ActivityScreen();
       case 'settings':
@@ -369,6 +370,7 @@ class _HomeShellState extends State<HomeShell> {
                       try {
                         context.read<DataCacheService>().refresh();
                       } catch (_) {}
+                      setState(() => _refreshKey++);
                     },
                     onSearch: (query) {
                       setState(() {

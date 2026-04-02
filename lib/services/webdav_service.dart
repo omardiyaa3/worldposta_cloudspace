@@ -583,14 +583,15 @@ class WebDavService {
   }
 
   /// Restore an item from trash to its original location
-  Future<void> restoreFromTrash(String trashItemPath, String originalLocation) async {
-    final trashDavPath = '/remote.php/dav/trashbin/${_auth.userId}/trash/$trashItemPath';
+  Future<void> restoreFromTrash(String trashItemPath, String originalLocation, {bool isDirectory = false}) async {
+    // For folders, Nextcloud expects the restore endpoint, not a direct MOVE
+    // Use the Nextcloud trashbin restore path
+    final trashDavPath = '/remote.php/dav/trashbin/${_auth.userId}/restore/$trashItemPath';
     final url = _buildCustomDavUri(trashDavPath);
 
     // Destination: use original location if available, otherwise restore to root
     String cleanOriginal = originalLocation;
     if (cleanOriginal == 'Me' || cleanOriginal.isEmpty) {
-      // No original location — strip the .dTIMESTAMP from trash item path to get filename
       cleanOriginal = trashItemPath.split('/').last;
       final dotDIndex = cleanOriginal.lastIndexOf(RegExp(r'\.d\d+$'));
       if (dotDIndex > 0) cleanOriginal = cleanOriginal.substring(0, dotDIndex);
@@ -603,7 +604,7 @@ class WebDavService {
     final destSegments = destPath.split('/').where((s) => s.isNotEmpty).toList();
     final destUrl = serverUri.replace(pathSegments: destSegments);
 
-    debugPrint('Restore MOVE: source=$url destination=$destUrl trashItem=$trashItemPath originalLoc=$originalLocation cleanOriginal=$cleanOriginal');
+    debugPrint('Restore MOVE: source=$url destination=$destUrl isDir=$isDirectory');
 
     final request = http.Request('MOVE', url);
     request.headers.addAll(_headers);
@@ -613,11 +614,57 @@ class WebDavService {
     final streamedResponse = await request.send();
     final body = await streamedResponse.stream.bytesToString();
     debugPrint('Restore response: ${streamedResponse.statusCode} $body');
-    if (streamedResponse.statusCode != 201 &&
-        streamedResponse.statusCode != 204 &&
-        streamedResponse.statusCode != 200) {
-      throw Exception('Restore failed: ${streamedResponse.statusCode} $body');
+
+    if (streamedResponse.statusCode == 201 ||
+        streamedResponse.statusCode == 204 ||
+        streamedResponse.statusCode == 200) {
+      return;
     }
+
+    // If restore endpoint failed, try the old trash path approach
+    if (streamedResponse.statusCode == 400 || streamedResponse.statusCode == 404) {
+      debugPrint('Restore via /restore/ failed, trying /trash/ path');
+      final trashPath = '/remote.php/dav/trashbin/${_auth.userId}/trash/$trashItemPath';
+      final trashUrl = _buildCustomDavUri(trashPath);
+
+      final retryRequest = http.Request('MOVE', trashUrl);
+      retryRequest.headers.addAll(_headers);
+      retryRequest.headers['Destination'] = destUrl.toString();
+      retryRequest.headers['Overwrite'] = 'T';
+
+      final retryResponse = await retryRequest.send();
+      final retryBody = await retryResponse.stream.bytesToString();
+      debugPrint('Restore retry response: ${retryResponse.statusCode} $retryBody');
+
+      if (retryResponse.statusCode == 201 ||
+          retryResponse.statusCode == 204 ||
+          retryResponse.statusCode == 200) {
+        return;
+      }
+
+      // Last attempt: restore to root if original location's parent is gone
+      if (cleanOriginal.contains('/')) {
+        final fileName = cleanOriginal.split('/').last;
+        final rootDestPath = '$_basePath/$fileName';
+        final rootDestSegments = rootDestPath.split('/').where((s) => s.isNotEmpty).toList();
+        final rootDestUrl = serverUri.replace(pathSegments: rootDestSegments);
+
+        final rootRequest = http.Request('MOVE', trashUrl);
+        rootRequest.headers.addAll(_headers);
+        rootRequest.headers['Destination'] = rootDestUrl.toString();
+        rootRequest.headers['Overwrite'] = 'T';
+
+        final rootResponse = await rootRequest.send();
+        await rootResponse.stream.drain();
+        if (rootResponse.statusCode == 201 ||
+            rootResponse.statusCode == 204 ||
+            rootResponse.statusCode == 200) {
+          return;
+        }
+      }
+    }
+
+    throw Exception('Could not restore item. The original location may no longer exist.');
   }
 
   /// List shared files (using OCS sharing API)
