@@ -92,23 +92,10 @@ class _FilesScreenState extends State<FilesScreen> {
 
   bool _cacheListenerPaused = false;
 
-  bool _pendingRefresh = false;
-
   void _onCacheChanged() {
-    if (!mounted) return;
-    if (_isLoading || _cacheListenerPaused) {
-      // Mark pending so we reload once the current load finishes
-      _pendingRefresh = true;
-      return;
-    }
-    _cacheListenerPaused = true;
-    _loadFiles().whenComplete(() {
-      _cacheListenerPaused = false;
-      if (_pendingRefresh && mounted) {
-        _pendingRefresh = false;
-        _onCacheChanged();
-      }
-    });
+    if (!mounted || _cacheListenerPaused) return;
+    // Always reload — _loadFiles handles its own _isLoading state
+    _loadFiles();
   }
 
   @override

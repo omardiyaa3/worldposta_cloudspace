@@ -587,38 +587,13 @@ class WebDavService {
     final serverUrl = _auth.serverUrl!;
     final userId = _auth.userId;
 
-    // Source: the item in trash
+    // Nextcloud restore: MOVE from /trash/{item} to /restore/{item}
+    // The server automatically puts it back in the original location
     final sourceUrl = Uri.parse('$serverUrl/remote.php/dav/trashbin/$userId/trash/$trashItemPath');
+    final destUrlStr = '$serverUrl/remote.php/dav/trashbin/$userId/restore/$trashItemPath';
 
-    // Figure out the restore destination filename
-    String cleanOriginal = originalLocation;
-    if (cleanOriginal == 'Me' || cleanOriginal.isEmpty) {
-      cleanOriginal = trashItemPath.split('/').last;
-      final dotDIndex = cleanOriginal.lastIndexOf(RegExp(r'\.d\d+$'));
-      if (dotDIndex > 0) cleanOriginal = cleanOriginal.substring(0, dotDIndex);
-    }
-    if (cleanOriginal.startsWith('/')) cleanOriginal = cleanOriginal.substring(1);
-
-    // Try restore to original location
-    var destUrlStr = '$serverUrl/remote.php/dav/files/$userId/$cleanOriginal';
     debugPrint('Restore MOVE: source=$sourceUrl destination=$destUrlStr');
 
-    var ok = await _doRestoreMove(sourceUrl, destUrlStr);
-    if (ok) return;
-
-    // If original location failed and it was in a subfolder, try root
-    if (cleanOriginal.contains('/')) {
-      final fileName = cleanOriginal.split('/').last;
-      destUrlStr = '$serverUrl/remote.php/dav/files/$userId/$fileName';
-      debugPrint('Restore to root: $destUrlStr');
-      ok = await _doRestoreMove(sourceUrl, destUrlStr);
-      if (ok) return;
-    }
-
-    throw Exception('Could not restore item. The original location may no longer exist.');
-  }
-
-  Future<bool> _doRestoreMove(Uri sourceUrl, String destUrlStr) async {
     final request = http.Request('MOVE', sourceUrl);
     request.headers.addAll(_headers);
     request.headers['Destination'] = destUrlStr;
@@ -627,9 +602,14 @@ class WebDavService {
     final response = await request.send();
     final body = await response.stream.bytesToString();
     debugPrint('Restore response: ${response.statusCode} $body');
-    return response.statusCode == 201 ||
+
+    if (response.statusCode == 201 ||
         response.statusCode == 204 ||
-        response.statusCode == 200;
+        response.statusCode == 200) {
+      return;
+    }
+
+    throw Exception('Restore failed (${response.statusCode}). Please try again.');
   }
 
   /// List shared files (using OCS sharing API)
