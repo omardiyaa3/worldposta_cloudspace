@@ -103,17 +103,22 @@ class DataCacheService extends ChangeNotifier {
   }
 
   Future<void> refreshFolder(String path) async {
+    isRefreshing = true;
+    notifyListeners();
     try {
       final files = await _webdav.listFiles(path);
       _folderCache[path] = files;
       if (path == '/') rootFiles = files;
-      notifyListeners();
     } catch (e) {
       debugPrint('refreshFolder error: $e');
     }
+    isRefreshing = false;
+    notifyListeners();
   }
 
   Future<void> refreshQuota() async {
+    isRefreshing = true;
+    notifyListeners();
     try {
       quota = await _webdav.getQuota();
       final used = (quota['used'] as int?) ?? 0;
@@ -122,22 +127,28 @@ class DataCacheService extends ChangeNotifier {
         final ratio = used / total;
         quotaWarningLevel = ratio >= 0.9 ? 'critical' : ratio >= 0.8 ? 'warning' : 'ok';
       }
-      notifyListeners();
     } catch (e) {
       debugPrint('refreshQuota error: $e');
     }
+    isRefreshing = false;
+    notifyListeners();
   }
 
   Future<void> refreshTrash() async {
+    isRefreshing = true;
+    notifyListeners();
     try {
       trashFiles = await _webdav.listTrash();
-      notifyListeners();
     } catch (e) {
       debugPrint('refreshTrash error: $e');
     }
+    isRefreshing = false;
+    notifyListeners();
   }
 
   Future<void> refreshShared() async {
+    isRefreshing = true;
+    notifyListeners();
     try {
       final results = await Future.wait([
         _webdav.listSharedWithMe(),
@@ -145,10 +156,11 @@ class DataCacheService extends ChangeNotifier {
       ]);
       sharedWithMe = results[0] as List<NcFile>;
       sharedByMe = results[1] as List<NcFile>;
-      notifyListeners();
     } catch (e) {
       debugPrint('refreshShared error: $e');
     }
+    isRefreshing = false;
+    notifyListeners();
   }
 
   Future<void> refreshStarred() async {

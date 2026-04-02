@@ -463,6 +463,9 @@ class _FilesScreenState extends State<FilesScreen> {
       final webdav = WebDavService(auth);
       await webdav.delete(file.path);
       if (mounted) {
+        final cache = context.read<DataCacheService>();
+        cache.clearFolderCache(_currentPath);
+        cache.rootFiles.removeWhere((f) => f.path == file.path);
         setState(() {
           _files.removeWhere((f) => f.path == file.path);
           _applyFilterAndSort();
@@ -470,7 +473,6 @@ class _FilesScreenState extends State<FilesScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${file.name} deleted'), backgroundColor: AppColors.green700),
         );
-        context.read<DataCacheService>().clearFolderCache(_currentPath);
       }
     } catch (e) {
       if (mounted) {
@@ -501,6 +503,7 @@ class _FilesScreenState extends State<FilesScreen> {
       final webdav = WebDavService(auth);
       await webdav.deleteFromTrash(file.path);
       if (mounted) {
+        context.read<DataCacheService>().trashFiles.removeWhere((f) => f.path == file.path);
         setState(() {
           _files.removeWhere((f) => f.path == file.path);
           _applyFilterAndSort();
@@ -525,7 +528,9 @@ class _FilesScreenState extends State<FilesScreen> {
       debugPrint('Restoring trash item: path=${file.path}, originalLocation=$originalLocation');
       await webdav.restoreFromTrash(file.path, originalLocation, isDirectory: file.isDirectory);
       if (mounted) {
-        // Remove from local list immediately for instant feedback
+        // Remove from local list AND cache immediately
+        final cache = context.read<DataCacheService>();
+        cache.trashFiles.removeWhere((f) => f.path == file.path);
         setState(() {
           _files.removeWhere((f) => f.path == file.path);
           _applyFilterAndSort();
@@ -533,8 +538,6 @@ class _FilesScreenState extends State<FilesScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${file.name} restored'), backgroundColor: AppColors.green700),
         );
-        // Refresh just trash in background
-        context.read<DataCacheService>().refreshTrash();
       }
     } catch (e) {
       if (mounted) {
@@ -622,7 +625,14 @@ class _FilesScreenState extends State<FilesScreen> {
       final newFav = !file.isFavorite;
       await webdav.toggleFavorite(file.path, newFav);
       if (mounted) {
-        // Update locally instantly
+        final cache = context.read<DataCacheService>();
+        // Update cache instantly
+        if (newFav) {
+          cache.starredFiles.add(file.copyWith(isFavorite: true));
+        } else {
+          cache.starredFiles.removeWhere((f) => f.path == file.path);
+        }
+        // Update local list instantly
         final idx = _files.indexWhere((f) => f.path == file.path);
         if (idx >= 0) {
           setState(() {
@@ -636,7 +646,6 @@ class _FilesScreenState extends State<FilesScreen> {
             backgroundColor: AppColors.green700,
           ),
         );
-        context.read<DataCacheService>().refreshStarred();
       }
     } catch (e) {
       if (mounted) {
@@ -1967,8 +1976,15 @@ class _FilesScreenState extends State<FilesScreen> {
                       ])
                     : Column(
                         children: [
-                          if (_isRefreshing)
-                            const LinearProgressIndicator(color: AppColors.green700, backgroundColor: AppColors.grey91, minHeight: 2),
+                          Builder(builder: (ctx) {
+                            try {
+                              final cache = ctx.watch<DataCacheService>();
+                              if (cache.isRefreshing) {
+                                return const LinearProgressIndicator(color: AppColors.green700, backgroundColor: AppColors.grey91, minHeight: 2);
+                              }
+                            } catch (_) {}
+                            return const SizedBox.shrink();
+                          }),
                           Expanded(
                             child: _filteredFiles.isEmpty
                                 ? _buildEmptyState()
