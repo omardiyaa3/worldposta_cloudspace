@@ -566,6 +566,34 @@ class _FilesScreenState extends State<FilesScreen> {
     }
   }
 
+  Future<void> _moveFile(NcFile file) async {
+    final auth = context.read<AuthService>();
+    final webdav = WebDavService(auth);
+    final destination = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _MoveToDialog(webdav: webdav, fileName: file.name),
+    );
+    if (destination == null) return;
+    try {
+      final destPath = '$destination${destination.endsWith('/') ? '' : '/'}${file.name}';
+      await webdav.move(file.path, destPath);
+      if (mounted) {
+        context.read<DataCacheService>().clearFolderCache(_currentPath);
+        context.read<DataCacheService>().clearFolderCache(destination);
+      }
+      await _loadFiles();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Moved "${file.name}" to $destination'), backgroundColor: AppColors.green700),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Move failed: $e')));
+      }
+    }
+  }
+
   Future<void> _toggleFavorite(NcFile file) async {
     try {
       final auth = context.read<AuthService>();
@@ -2029,6 +2057,7 @@ class _FilesScreenState extends State<FilesScreen> {
                   onDelete: () => _deleteFile(f),
                   onToggleFavorite: () => _toggleFavorite(f),
                   onShare: () => _shareFile(f),
+                  onMove: () => _moveFile(f),
                   onViewActivity: (f.fileId != null && f.fileId!.isNotEmpty) ? () => _showFileActivity(f) : null,
                 )).toList(),
               ),
@@ -2089,6 +2118,7 @@ class _FilesScreenState extends State<FilesScreen> {
                 onToggleFavorite: widget.mode != FileViewMode.trash ? () => _toggleFavorite(file) : null,
                 onSetReminder: (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _setReminder(file) : null,
                 onShare: widget.mode != FileViewMode.trash ? () => _shareFile(file) : null,
+                onMove: widget.mode != FileViewMode.trash ? () => _moveFile(file) : null,
                 onViewActivity: (file.fileId != null && file.fileId!.isNotEmpty) ? () => _showFileActivity(file) : null,
                 onPermanentDelete: widget.mode == FileViewMode.trash ? () => _permanentlyDeleteFromTrash(file) : null,
                 onRestore: widget.mode == FileViewMode.trash ? () => _restoreFromTrash(file) : null,
@@ -2177,9 +2207,10 @@ class _FolderCard extends StatelessWidget {
   final VoidCallback? onToggleFavorite;
   final VoidCallback? onShare;
   final VoidCallback? onViewActivity;
+  final VoidCallback? onMove;
   final double? mobileWidth;
 
-  const _FolderCard({required this.folder, required this.onTap, this.onRename, this.onDelete, this.onToggleFavorite, this.onShare, this.onViewActivity, this.mobileWidth});
+  const _FolderCard({required this.folder, required this.onTap, this.onRename, this.onDelete, this.onToggleFavorite, this.onShare, this.onViewActivity, this.onMove, this.mobileWidth});
 
   void _showContextMenu(BuildContext context, Offset position) {
     final items = <PopupMenuEntry<String>>[
@@ -2189,7 +2220,9 @@ class _FolderCard extends StatelessWidget {
         PopupMenuItem(value: 'favorite', child: Row(children: [Icon(folder.isFavorite ? Icons.star : Icons.star_outline, size: 16, color: folder.isFavorite ? AppColors.fileSketch : AppColors.body), const SizedBox(width: 8), Text(folder.isFavorite ? 'Remove from favorites' : 'Add to favorites')])),
       if (onShare != null)
         const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
-                    if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
+      if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
+      if (onMove != null)
+        const PopupMenuItem(value: 'move', child: Row(children: [Icon(Icons.drive_file_move_outline, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Move to...')])),
       if (onDelete != null)
         const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Delete', style: TextStyle(color: AppColors.filePdf))])),
     ];
@@ -2205,6 +2238,7 @@ class _FolderCard extends StatelessWidget {
         case 'favorite': onToggleFavorite?.call();
         case 'share': onShare?.call();
         case 'activity': onViewActivity?.call();
+        case 'move': onMove?.call();
         case 'delete': onDelete?.call();
       }
     });
@@ -2243,7 +2277,8 @@ class _FolderCard extends StatelessWidget {
                       case 'rename': onRename?.call();
                       case 'favorite': onToggleFavorite?.call();
                       case 'share': onShare?.call();
-        case 'activity': onViewActivity?.call();
+                      case 'activity': onViewActivity?.call();
+                      case 'move': onMove?.call();
                       case 'delete': onDelete?.call();
                     }
                   },
@@ -2255,6 +2290,8 @@ class _FolderCard extends StatelessWidget {
                     if (onShare != null)
                       const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
                     if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
+                    if (onMove != null)
+                      const PopupMenuItem(value: 'move', child: Row(children: [Icon(Icons.drive_file_move_outline, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Move to...')])),
                     if (onDelete != null)
                       const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Delete', style: TextStyle(color: AppColors.filePdf))])),
                   ],
@@ -2284,9 +2321,10 @@ class _FileRow extends StatelessWidget {
   final VoidCallback? onSetReminder;
   final VoidCallback? onShare;
   final VoidCallback? onViewActivity;
+  final VoidCallback? onMove;
   final bool isMobile;
 
-  const _FileRow({required this.file, this.onTap, this.onDelete, this.onDownload, this.onPermanentDelete, this.onRestore, this.onRename, this.onToggleFavorite, this.onSetReminder, this.onShare, this.onViewActivity, this.isMobile = false});
+  const _FileRow({required this.file, this.onTap, this.onDelete, this.onDownload, this.onPermanentDelete, this.onRestore, this.onRename, this.onToggleFavorite, this.onSetReminder, this.onShare, this.onViewActivity, this.onMove, this.isMobile = false});
 
   void _showContextMenu(BuildContext context, Offset position) {
     final items = <PopupMenuEntry<String>>[
@@ -2299,6 +2337,8 @@ class _FileRow extends StatelessWidget {
       if (onShare != null)
         const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
                     if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
+      if (onMove != null)
+        const PopupMenuItem(value: 'move', child: Row(children: [Icon(Icons.drive_file_move_outline, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Move to...')])),
       if (onSetReminder != null)
         const PopupMenuItem(value: 'reminder', child: Row(children: [Icon(Icons.alarm, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Set reminder')])),
       if (onDelete != null)
@@ -2321,6 +2361,7 @@ class _FileRow extends StatelessWidget {
         case 'favorite': onToggleFavorite?.call();
         case 'share': onShare?.call();
         case 'activity': onViewActivity?.call();
+        case 'move': onMove?.call();
         case 'reminder': onSetReminder?.call();
         case 'delete': onDelete?.call();
         case 'permanent_delete': onPermanentDelete?.call();
@@ -2445,7 +2486,8 @@ class _FileRow extends StatelessWidget {
                     case 'rename': onRename?.call();
                     case 'favorite': onToggleFavorite?.call();
                     case 'share': onShare?.call();
-        case 'activity': onViewActivity?.call();
+                    case 'activity': onViewActivity?.call();
+                    case 'move': onMove?.call();
                     case 'reminder': onSetReminder?.call();
                     case 'delete': onDelete?.call();
                     case 'permanent_delete': onPermanentDelete?.call();
@@ -2457,7 +2499,9 @@ class _FileRow extends StatelessWidget {
                     const PopupMenuItem(value: 'download', child: Row(children: [Icon(Icons.download, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Download')])),
                   if (onShare != null)
                     const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
-                    if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
+                  if (onViewActivity != null) const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('View Activity')])),
+                  if (onMove != null)
+                    const PopupMenuItem(value: 'move', child: Row(children: [Icon(Icons.drive_file_move_outline, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Move to...')])),
                   if (onRename != null)
                     const PopupMenuItem(value: 'rename', child: Row(children: [Icon(Icons.edit, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Rename')])),
                   if (onToggleFavorite != null)
@@ -2667,6 +2711,122 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
         ),
         style: const TextStyle(fontSize: 14),
       ),
+    );
+  }
+}
+
+/// Dialog for choosing a destination folder when moving files.
+class _MoveToDialog extends StatefulWidget {
+  final WebDavService webdav;
+  final String fileName;
+  const _MoveToDialog({required this.webdav, required this.fileName});
+
+  @override
+  State<_MoveToDialog> createState() => _MoveToDialogState();
+}
+
+class _MoveToDialogState extends State<_MoveToDialog> {
+  String _currentPath = '/';
+  List<NcFile> _folders = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final items = await widget.webdav.listFiles(_currentPath);
+      _folders = items.where((f) => f.isDirectory).toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  void _goUp() {
+    final parts = _currentPath.split('/').where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return;
+    parts.removeLast();
+    _currentPath = parts.isEmpty ? '/' : '/${parts.join('/')}';
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Move "${widget.fileName}" to...'),
+      content: SizedBox(
+        width: 400,
+        height: 400,
+        child: Column(
+          children: [
+            // Current path + back button
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  if (_currentPath != '/')
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, size: 20),
+                      onPressed: _goUp,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
+                  const Icon(Icons.folder_open, size: 18, color: AppColors.green800),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _currentPath == '/' ? 'Root' : _currentPath,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.heading),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: AppColors.green700, strokeWidth: 2))
+                  : _folders.isEmpty
+                      ? const Center(child: Text('No subfolders', style: TextStyle(color: AppColors.muted, fontSize: 13)))
+                      : ListView.builder(
+                          itemCount: _folders.length,
+                          itemBuilder: (_, i) {
+                            final f = _folders[i];
+                            return ListTile(
+                              dense: true,
+                              leading: const Icon(Icons.folder, size: 20, color: AppColors.green800),
+                              title: Text(f.name, style: const TextStyle(fontSize: 13)),
+                              onTap: () {
+                                _currentPath = f.path;
+                                _load();
+                              },
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () => Navigator.pop(context, _currentPath),
+          icon: const Icon(Icons.check, size: 18),
+          label: const Text('Move Here'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.green800,
+            foregroundColor: AppColors.white,
+          ),
+        ),
+      ],
     );
   }
 }

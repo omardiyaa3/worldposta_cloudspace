@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -53,6 +54,25 @@ class _CloudSpaceHttpOverrides extends HttpOverrides {
         return host.contains('worldposta.com');
       };
   }
+}
+
+/// Lightweight AuthService wrapper for a single account (used by background syncs).
+class _AccountAuthService extends AuthService {
+  final Account _account;
+  _AccountAuthService(this._account);
+
+  @override String? get serverUrl => _account.serverUrl;
+  @override String? get username => _account.username;
+  @override String? get userId => _account.userId;
+  @override String? get appPassword => _account.appPassword;
+  @override String? get displayName => _account.displayName;
+  @override bool get isLoggedIn => true;
+  @override bool get isLoading => false;
+  @override String get basicAuth {
+    final credentials = base64Encode(utf8.encode('${_account.username}:${_account.appPassword}'));
+    return 'Basic $credentials';
+  }
+  @override Future<void> init() async {}
 }
 
 /// Bridge that prefers AccountManager credentials, falls back to AuthService.
@@ -118,7 +138,8 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
   final _authService = AuthService();
   late final AuthBridge _bridge;
   DataCacheService? _cache;
-  SyncService? _sync;
+  SyncService? _sync; // Active account's sync (shown in UI)
+  final Map<String, SyncService> _allSyncs = {}; // Per-account background syncs
   bool _initialized = false;
 
   @override
@@ -242,6 +263,7 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
 
   void _onAuthChanged() {
     _setupServices();
+    _setupBackgroundSyncs();
     setState(() {});
   }
 
@@ -250,18 +272,46 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
     final currentId = _accountMgr.activeAccount?.id;
 
     if (isLoggedIn && (_cache == null || currentId != _lastActiveAccountId)) {
-      // Dispose old services when switching accounts
+      // Dispose old active-account services
       _cache?.dispose();
-      _sync?.dispose();
       _cache = DataCacheService(_bridge)..init();
-      _sync = SyncService(_bridge)..init();
+      // Point _sync to this account's background sync (or create it)
+      _sync = _allSyncs[currentId];
       _lastActiveAccountId = currentId;
     } else if (!isLoggedIn) {
       _cache?.dispose();
-      _sync?.dispose();
       _cache = null;
       _sync = null;
       _lastActiveAccountId = null;
+    }
+  }
+
+  /// Ensure every account has a SyncService running in the background.
+  void _setupBackgroundSyncs() {
+    final accounts = _accountMgr.accounts;
+    final currentIds = accounts.map((a) => a.id).toSet();
+
+    // Remove syncs for deleted accounts
+    for (final id in _allSyncs.keys.toList()) {
+      if (!currentIds.contains(id)) {
+        _allSyncs[id]?.dispose();
+        _allSyncs.remove(id);
+      }
+    }
+
+    // Create syncs for new accounts
+    for (final account in accounts) {
+      if (!_allSyncs.containsKey(account.id)) {
+        final auth = _AccountAuthService(account);
+        final sync = SyncService(auth)..init();
+        _allSyncs[account.id] = sync;
+      }
+    }
+
+    // Update _sync pointer to active account
+    final activeId = _accountMgr.activeAccount?.id;
+    if (activeId != null) {
+      _sync = _allSyncs[activeId];
     }
   }
 
@@ -274,7 +324,8 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
     _accountMgr.removeListener(_onAuthChanged);
     _authService.removeListener(_onAuthChanged);
     _cache?.dispose();
-    _sync?.dispose();
+    for (final s in _allSyncs.values) { s.dispose(); }
+    _allSyncs.clear();
     _accountMgr.dispose();
     _authService.dispose();
     super.dispose();

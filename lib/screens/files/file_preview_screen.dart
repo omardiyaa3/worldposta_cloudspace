@@ -228,6 +228,136 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     }
   }
 
+  final ScrollController _editorScrollController = ScrollController();
+
+  Widget _buildCodeEditor({required bool editing}) {
+    final text = editing
+        ? (_textController?.text ?? String.fromCharCodes(_bytes!))
+        : (_textController?.text ?? String.fromCharCodes(_bytes!));
+    final lines = text.split('\n');
+    final lineCount = lines.length;
+    final lineNumWidth = '${lineCount}'.length * 9.0 + 16;
+
+    const textStyle = TextStyle(
+      fontSize: 13,
+      fontFamily: 'monospace',
+      color: AppColors.heading,
+      height: 1.6,
+    );
+    const lineNumStyle = TextStyle(
+      fontSize: 13,
+      fontFamily: 'monospace',
+      color: AppColors.muted,
+      height: 1.6,
+    );
+
+    if (editing) {
+      return Container(
+        color: const Color(0xFFFAFAFA),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Line numbers gutter
+            Container(
+              width: lineNumWidth,
+              color: const Color(0xFFF0F0F0),
+              child: ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _textController!,
+                builder: (_, value, __) {
+                  final count = '\n'.allMatches(value.text).length + 1;
+                  return SingleChildScrollView(
+                    controller: _editorScrollController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(top: 12, bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: List.generate(count, (i) => SizedBox(
+                        height: 13 * 1.6,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Text('${i + 1}', style: lineNumStyle, textAlign: TextAlign.right),
+                        ),
+                      )),
+                    ),
+                  );
+                },
+              ),
+            ),
+            // Divider
+            Container(width: 1, color: AppColors.grey91),
+            // Editor
+            Expanded(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  if (notification is ScrollUpdateNotification) {
+                    _editorScrollController.jumpTo(
+                      notification.metrics.pixels.clamp(0, _editorScrollController.position.maxScrollExtent),
+                    );
+                  }
+                  return false;
+                },
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(12),
+                  child: TextField(
+                    controller: _textController,
+                    maxLines: null,
+                    keyboardType: TextInputType.multiline,
+                    style: textStyle,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      filled: false,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      // Read-only view with line numbers
+      return Container(
+        color: const Color(0xFFFAFAFA),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.zero,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Line numbers
+              Container(
+                width: lineNumWidth,
+                color: const Color(0xFFF0F0F0),
+                padding: const EdgeInsets.only(top: 12, bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: List.generate(lineCount, (i) => SizedBox(
+                    height: 13 * 1.6,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text('${i + 1}', style: lineNumStyle, textAlign: TextAlign.right),
+                    ),
+                  )),
+                ),
+              ),
+              Container(width: 1, color: AppColors.grey91),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SelectableText(
+                    text,
+                    style: textStyle,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -493,46 +623,9 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
             }
           });
         }
-        return Container(
-          color: AppColors.white,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _textController,
-              maxLines: null,
-              keyboardType: TextInputType.multiline,
-              style: const TextStyle(
-                fontSize: 13,
-                fontFamily: 'monospace',
-                color: AppColors.heading,
-                height: 1.5,
-              ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                filled: false,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          ),
-        );
+        return _buildCodeEditor(editing: true);
       } else {
-        final text = _textController?.text ?? String.fromCharCodes(_bytes!);
-        return Container(
-          color: AppColors.white,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: SelectableText(
-              text,
-              style: const TextStyle(
-                fontSize: 13,
-                fontFamily: 'monospace',
-                color: AppColors.heading,
-                height: 1.5,
-              ),
-            ),
-          ),
-        );
+        return _buildCodeEditor(editing: false);
       }
     }
 
