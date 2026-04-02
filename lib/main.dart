@@ -162,6 +162,7 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
 
     _accountMgr.addListener(_onAuthChanged);
     _authService.addListener(_onAuthChanged);
+    _setupBackgroundSyncs();
     _setupServices();
     if (_isDesktop) await _initTray();
     setState(() => _initialized = true);
@@ -262,8 +263,8 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
   String? _lastActiveAccountId;
 
   void _onAuthChanged() {
-    _setupServices();
     _setupBackgroundSyncs();
+    _setupServices();
     setState(() {});
   }
 
