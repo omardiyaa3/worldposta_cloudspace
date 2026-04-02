@@ -39,7 +39,8 @@ class _FilesScreenState extends State<FilesScreen> {
   String _currentPath = '/';
   List<NcFile> _files = [];
   List<NcFile> _filteredFiles = [];
-  bool _isLoading = true;
+  bool _isLoading = true;  // Full-screen spinner (first load only)
+  bool _isRefreshing = false;  // Subtle indicator while updating in background
   bool _isGridView = true;
   bool _isUploading = false;
   String _uploadingFileName = '';
@@ -107,13 +108,17 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> _loadFiles() async {
-    setState(() { _isLoading = true; _error = null; });
+    // First load: full spinner. Subsequent loads: subtle refresh indicator.
+    if (_files.isEmpty && !_isRefreshing) {
+      setState(() { _isLoading = true; _error = null; });
+    } else {
+      setState(() { _isRefreshing = true; });
+    }
 
     try {
       final cache = context.read<DataCacheService>();
 
       List<NcFile> files;
-      // If a server-side search query was passed from the top bar, use search
       if (widget.searchQuery.isNotEmpty) {
         final auth = context.read<AuthService>();
         final webdav = WebDavService(auth);
@@ -140,13 +145,16 @@ class _FilesScreenState extends State<FilesScreen> {
           _files = files;
           _applyFilterAndSort();
           _isLoading = false;
+          _isRefreshing = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = _friendlyError(e);
+          // Only show error if we have nothing to display
+          if (_files.isEmpty) _error = _friendlyError(e);
           _isLoading = false;
+          _isRefreshing = false;
         });
       }
     }
@@ -1930,7 +1938,7 @@ class _FilesScreenState extends State<FilesScreen> {
             },
             child: _isLoading
                 ? ListView(children: const [SizedBox(height: 200), Center(child: CircularProgressIndicator(color: AppColors.green700))])
-                : _error != null
+                : _error != null && _files.isEmpty
                     ? ListView(children: [
                         const SizedBox(height: 200),
                         Center(child: Column(
@@ -1942,11 +1950,19 @@ class _FilesScreenState extends State<FilesScreen> {
                           ],
                         )),
                       ])
-                    : _filteredFiles.isEmpty
-                        ? _buildEmptyState()
-                        : (widget.mode == FileViewMode.files && _isGridView)
-                            ? _buildGridView(folders, files)
-                            : _buildListView(),
+                    : Column(
+                        children: [
+                          if (_isRefreshing)
+                            const LinearProgressIndicator(color: AppColors.green700, backgroundColor: AppColors.grey91, minHeight: 2),
+                          Expanded(
+                            child: _filteredFiles.isEmpty
+                                ? _buildEmptyState()
+                                : (widget.mode == FileViewMode.files && _isGridView)
+                                    ? _buildGridView(folders, files)
+                                    : _buildListView(),
+                          ),
+                        ],
+                      ),
           ),
         ),
       ],
