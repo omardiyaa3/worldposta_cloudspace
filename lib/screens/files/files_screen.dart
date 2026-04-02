@@ -123,7 +123,7 @@ class _FilesScreenState extends State<FilesScreen> {
       final cache = context.read<DataCacheService>();
 
       List<NcFile> files;
-      if (widget.searchQuery.isNotEmpty) {
+      if (widget.searchQuery.isNotEmpty && !_browsingAfterSearch) {
         final auth = context.read<AuthService>();
         final webdav = WebDavService(auth);
         files = await webdav.search(widget.searchQuery);
@@ -226,12 +226,16 @@ class _FilesScreenState extends State<FilesScreen> {
     });
   }
 
+  bool _browsingAfterSearch = false;
+
   void _navigateToFolder(NcFile folder) {
     if (widget.mode != FileViewMode.files) return;
     setState(() {
       _currentPath = folder.path;
       _files = [];
       _filteredFiles = [];
+      // If we're in search results, switch to normal folder browsing
+      if (widget.searchQuery.isNotEmpty) _browsingAfterSearch = true;
     });
     widget.onPathChanged?.call(folder.path);
     _loadFiles();
@@ -765,7 +769,7 @@ class _FilesScreenState extends State<FilesScreen> {
       final url = Uri.parse(
         '${auth.serverUrl}/ocs/v2.php/apps/files_reminders/api/v1/reminders/${file.fileId}',
       );
-      final response = await http.put(
+      final response = await WebDavService.sharedHttpClient.put(
         url,
         headers: {
           'Authorization': auth.basicAuth,
@@ -809,7 +813,7 @@ class _FilesScreenState extends State<FilesScreen> {
     // Fetch existing shares for this file
     List<Map<String, dynamic>> existingShares = [];
     try {
-      final resp = await http.get(sharesUrl, headers: headers);
+      final resp = await WebDavService.sharedHttpClient.get(sharesUrl, headers: headers);
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         final shares = data['ocs']?['data'] as List? ?? [];
@@ -1025,7 +1029,7 @@ class _FilesScreenState extends State<FilesScreen> {
                           final postUrl = Uri.parse(
                             '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?format=json',
                           );
-                          final resp = await http.post(postUrl, headers: {
+                          final resp = await WebDavService.sharedHttpClient.post(postUrl, headers: {
                             ...headers,
                             'Content-Type': 'application/x-www-form-urlencoded',
                           }, body: {
@@ -1065,7 +1069,7 @@ class _FilesScreenState extends State<FilesScreen> {
                                   final putUrl = Uri.parse(
                                     '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares/$shareId?format=json',
                                   );
-                                  final putResp = await http.put(putUrl, headers: {
+                                  final putResp = await WebDavService.sharedHttpClient.put(putUrl, headers: {
                                     ...headers,
                                   }, body: 'permissions=$_newSharePermission',
                                   encoding: Encoding.getByName('utf-8'));
@@ -1123,7 +1127,7 @@ class _FilesScreenState extends State<FilesScreen> {
                           final postUrl = Uri.parse(
                             '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?format=json',
                           );
-                          final resp = await http.post(postUrl, headers: {
+                          final resp = await WebDavService.sharedHttpClient.post(postUrl, headers: {
                             ...headers,
                             'Content-Type': 'application/x-www-form-urlencoded',
                           }, body: {
@@ -1266,7 +1270,7 @@ class _FilesScreenState extends State<FilesScreen> {
                                           final delUrl = Uri.parse(
                                             '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares/$shareId?format=json',
                                           );
-                                          await http.delete(delUrl, headers: headers);
+                                          await WebDavService.sharedHttpClient.delete(delUrl, headers: headers);
                                           setSheetState(() {
                                             existingShares = List.from(existingShares)..removeAt(i);
                                           });
@@ -1293,13 +1297,13 @@ class _FilesScreenState extends State<FilesScreen> {
                                         final delUrl = Uri.parse(
                                           '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares/$shareId?format=json',
                                         );
-                                        await http.delete(delUrl, headers: headers);
+                                        await WebDavService.sharedHttpClient.delete(delUrl, headers: headers);
 
                                         // Recreate with new permissions
                                         final postUrl = Uri.parse(
                                           '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?format=json',
                                         );
-                                        final resp = await http.post(postUrl, headers: {
+                                        final resp = await WebDavService.sharedHttpClient.post(postUrl, headers: {
                                           ...headers,
                                           'Content-Type': 'application/x-www-form-urlencoded',
                                         }, body: {
@@ -1999,8 +2003,15 @@ class _FilesScreenState extends State<FilesScreen> {
                       ])
                     : Column(
                         children: [
-                          if (_isRefreshing)
-                            const LinearProgressIndicator(color: AppColors.green700, backgroundColor: AppColors.grey91, minHeight: 2),
+                          Builder(builder: (ctx) {
+                            try {
+                              final cache = ctx.watch<DataCacheService>();
+                              if (cache.isRefreshing || _isRefreshing) {
+                                return const LinearProgressIndicator(color: AppColors.green700, backgroundColor: AppColors.grey91, minHeight: 2);
+                              }
+                            } catch (_) {}
+                            return const SizedBox.shrink();
+                          }),
                           Expanded(
                             child: _filteredFiles.isEmpty
                                 ? _buildEmptyState()
@@ -2714,7 +2725,7 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
       final url = Uri.parse(
         '${widget.serverUrl}/ocs/v2.php/core/autocomplete/get?search=${Uri.encodeQueryComponent(query)}&itemType=file&format=json',
       );
-      final response = await http.get(url, headers: {
+      final response = await WebDavService.sharedHttpClient.get(url, headers: {
         'Authorization': widget.basicAuth,
         'OCS-APIRequest': 'true',
       });

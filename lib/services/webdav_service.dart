@@ -20,6 +20,12 @@ class WebDavService {
     return _sharedClient!;
   }
 
+  /// Expose the pooled client for use by other code (sharing, reminders, etc.)
+  static http.Client get sharedHttpClient {
+    _sharedClient ??= http.Client();
+    return _sharedClient!;
+  }
+
   WebDavService(this._auth);
 
   String get _basePath =>
@@ -241,7 +247,7 @@ class WebDavService {
   Future<void> uploadFile(String remotePath, Uint8List data) async {
     final url = _buildUri(remotePath);
     debugPrint('Upload to: $url (${data.length} bytes)');
-    final response = await http.put(
+    final response = await _client.put(
       url,
       headers: {
         ..._headers,

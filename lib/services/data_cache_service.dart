@@ -140,38 +140,46 @@ class DataCacheService extends ChangeNotifier {
   }
 
   Future<void> refreshFolder(String path) async {
+    isRefreshing = true;
+    // Don't notify here — _loadInProgress guard prevents feedback loop
     try {
       final files = await _webdav.listFiles(path);
       _folderCache[path] = files;
       if (path == '/') rootFiles = files;
       final etag = await _webdav.getFolderEtag(path);
       if (etag != null) _folderEtags[path] = etag;
-      notifyListeners();
     } catch (e) {
       debugPrint('refreshFolder error: $e');
     }
+    isRefreshing = false;
+    notifyListeners();
   }
 
   Future<void> refreshQuota() async {
+    isRefreshing = true;
     try {
       quota = await _webdav.getQuota();
       _updateQuotaWarning();
-      notifyListeners();
     } catch (e) {
       debugPrint('refreshQuota error: $e');
     }
+    isRefreshing = false;
+    notifyListeners();
   }
 
   Future<void> refreshTrash() async {
+    isRefreshing = true;
     try {
       trashFiles = await _webdav.listTrash();
-      notifyListeners();
     } catch (e) {
       debugPrint('refreshTrash error: $e');
     }
+    isRefreshing = false;
+    notifyListeners();
   }
 
   Future<void> refreshShared() async {
+    isRefreshing = true;
     try {
       final results = await Future.wait([
         _webdav.listSharedWithMe(),
@@ -179,10 +187,11 @@ class DataCacheService extends ChangeNotifier {
       ]);
       sharedWithMe = results[0] as List<NcFile>;
       sharedByMe = results[1] as List<NcFile>;
-      notifyListeners();
     } catch (e) {
       debugPrint('refreshShared error: $e');
     }
+    isRefreshing = false;
+    notifyListeners();
   }
 
   Future<void> refreshStarred() async {
