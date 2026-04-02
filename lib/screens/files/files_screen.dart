@@ -2031,7 +2031,11 @@ class _FilesScreenState extends State<FilesScreen> {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         InkWell(
-          onTap: () { setState(() => _currentPath = '/'); widget.onPathChanged?.call('/'); _loadFiles(); },
+          onTap: () {
+            setState(() { _currentPath = '/'; _files = []; _filteredFiles = []; });
+            widget.onPathChanged?.call('/');
+            _loadFiles();
+          },
           child: const Text('My Files', style: TextStyle(fontSize: 14, color: AppColors.green700, fontWeight: FontWeight.w500)),
         ),
         ..._breadcrumbs.asMap().entries.map((entry) {

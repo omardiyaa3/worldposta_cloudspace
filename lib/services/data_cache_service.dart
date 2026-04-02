@@ -24,6 +24,8 @@ class DataCacheService extends ChangeNotifier {
 
   // Per-path cache for browsing folders
   final Map<String, List<NcFile>> _folderCache = {};
+  // Per-path ETags — used to skip re-fetching unchanged folders
+  final Map<String, String> _folderEtags = {};
 
   DataCacheService(this._auth) {
     _webdav = WebDavService(_auth);
@@ -42,7 +44,8 @@ class DataCacheService extends ChangeNotifier {
     _fullRefreshRunning = true;
     isRefreshing = true;
     notifyListeners();
-    _folderCache.clear();
+    // Don't clear folder cache — visited folders stay cached for instant navigation
+    // _loadAll updates root files and the root cache entry automatically
     await _loadAll();
     isRefreshing = false;
     _fullRefreshRunning = false;
@@ -106,9 +109,13 @@ class DataCacheService extends ChangeNotifier {
     isRefreshing = true;
     notifyListeners();
     try {
+      // Always fetch fresh when user explicitly hits refresh
       final files = await _webdav.listFiles(path);
       _folderCache[path] = files;
       if (path == '/') rootFiles = files;
+      // Update stored ETag
+      final etag = await _webdav.getFolderEtag(path);
+      if (etag != null) _folderEtags[path] = etag;
     } catch (e) {
       debugPrint('refreshFolder error: $e');
     }
@@ -183,29 +190,44 @@ class DataCacheService extends ChangeNotifier {
 
   Future<List<NcFile>> getFolder(String path) async {
     if (_folderCache.containsKey(path)) {
-      // Return cached data immediately, refresh in background
-      _refreshFolder(path);
+      // Return cached data immediately, check for changes in background
+      _refreshFolderIfChanged(path);
       return _folderCache[path]!;
     }
-    // Not cached yet — fetch and cache
+    // Not cached — fetch, cache, store ETag
     final files = await _webdav.listFiles(path);
     _folderCache[path] = files;
+    // Store the folder's ETag for future change detection
+    _webdav.getFolderEtag(path).then((etag) {
+      if (etag != null) _folderEtags[path] = etag;
+    });
     return files;
   }
 
-  Future<void> _refreshFolder(String path) async {
+  /// Only re-fetch if the folder's ETag changed on the server
+  Future<void> _refreshFolderIfChanged(String path) async {
     try {
+      final serverEtag = await _webdav.getFolderEtag(path);
+      if (serverEtag == null) return;
+
+      final cachedEtag = _folderEtags[path];
+      if (cachedEtag == serverEtag) {
+        // Nothing changed — skip the full fetch
+        return;
+      }
+
+      // ETag changed — fetch new contents
       final files = await _webdav.listFiles(path);
       _folderCache[path] = files;
-      if (path == '/') {
-        rootFiles = files;
-      }
+      _folderEtags[path] = serverEtag;
+      if (path == '/') rootFiles = files;
       notifyListeners();
     } catch (_) {}
   }
 
   void clearFolderCache(String path) {
     _folderCache.remove(path);
+    _folderEtags.remove(path);
   }
 
   @override

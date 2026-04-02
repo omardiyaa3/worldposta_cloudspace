@@ -42,6 +42,30 @@ class WebDavService {
     }
   }
 
+  /// Check a folder's ETag without fetching contents (Depth:0, tiny request)
+  Future<String?> getFolderEtag(String remotePath) async {
+    final url = _buildUri(remotePath);
+    final request = http.Request('PROPFIND', url);
+    request.headers.addAll(_headers);
+    request.headers['Depth'] = '0';
+    request.headers['Content-Type'] = 'application/xml; charset=utf-8';
+    request.body = '''<?xml version="1.0" encoding="UTF-8"?>
+<d:propfind xmlns:d="DAV:">
+  <d:prop><d:getetag/></d:prop>
+</d:propfind>''';
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    if (response.statusCode != 207) return null;
+
+    try {
+      final doc = XmlDocument.parse(response.body);
+      return doc.findAllElements('d:getetag').firstOrNull?.innerText?.replaceAll('"', '');
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// List files in a directory using PROPFIND
   Future<List<NcFile>> listFiles(String remotePath) async {
     final url = _buildUri(remotePath);
