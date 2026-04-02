@@ -128,14 +128,24 @@ class _FilesScreenState extends State<FilesScreen> {
           case FileViewMode.files:
             files = await cache.getFolder(_currentPath);
           case FileViewMode.shared:
+            // If not loaded yet, fetch immediately
+            if (cache.sharedWithMe.isEmpty && cache.sharedByMe.isEmpty && !cache.isFullyLoaded) {
+              await cache.refreshShared();
+            }
             _sharedWithMeFiles = cache.sharedWithMe;
             _sharedByMeFiles = cache.sharedByMe;
             files = _showSharedByMe ? cache.sharedByMe : cache.sharedWithMe;
           case FileViewMode.recent:
             files = cache.recentFiles;
           case FileViewMode.starred:
+            if (cache.starredFiles.isEmpty && !cache.isFullyLoaded) {
+              await cache.refreshStarred();
+            }
             files = cache.starredFiles;
           case FileViewMode.trash:
+            if (cache.trashFiles.isEmpty && !cache.isFullyLoaded) {
+              await cache.refreshTrash();
+            }
             files = cache.trashFiles;
         }
       }
@@ -2080,6 +2090,29 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Widget _buildEmptyState() {
+    // If phase 2 data hasn't loaded yet for non-files tabs, show loading
+    final needsPhase2 = widget.mode == FileViewMode.trash ||
+        widget.mode == FileViewMode.shared ||
+        widget.mode == FileViewMode.starred;
+    if (needsPhase2) {
+      try {
+        final cache = context.read<DataCacheService>();
+        if (!cache.isFullyLoaded) {
+          return ListView(children: const [
+            SizedBox(height: 150),
+            Center(child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: AppColors.green700, strokeWidth: 2),
+                SizedBox(height: 16),
+                Text('Loading...', style: TextStyle(color: AppColors.muted, fontSize: 14)),
+              ],
+            )),
+          ]);
+        }
+      } catch (_) {}
+    }
+
     return ListView(children: [const SizedBox(height: 100), Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,

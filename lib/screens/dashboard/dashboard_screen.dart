@@ -34,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final allFiles = cache.rootFiles;
     final recentFiles = cache.recentFiles.where((f) => !f.isDirectory).take(6).toList();
     final quota = cache.quota;
-    final sharedCount = cache.sharedWithMe.length;
+    final sharedCount = cache.sharedByMe.length;
     final totalFiles = allFiles.where((f) => !f.isDirectory).length;
     final totalFolders = allFiles.where((f) => f.isDirectory).length;
 

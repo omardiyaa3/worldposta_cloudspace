@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config/theme.dart';
 import '../services/account_manager.dart';
 
@@ -56,7 +57,10 @@ class AppSidebar extends StatelessWidget {
           // Logo
           Padding(
             padding: EdgeInsets.only(top: topPadding + 16, left: 20, right: 20, bottom: 8),
-            child: Row(
+            child: InkWell(
+              onTap: () => launchUrl(Uri.parse('https://cloudspace.worldposta.com/'), mode: LaunchMode.externalApplication),
+              borderRadius: BorderRadius.circular(8),
+              child: Row(
               children: [
                 Image.asset('assets/logo.png', width: 40, height: 40),
                 const SizedBox(width: 10),
@@ -69,6 +73,7 @@ class AppSidebar extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
             ),
           ),
 

@@ -21,6 +21,9 @@ class DataCacheService extends ChangeNotifier {
   String quotaWarningLevel = 'ok';
   bool isFirstLoad = true;
   bool isRefreshing = false;
+  bool _phase2Done = false;
+  /// True once shared/starred/trash/activity have loaded at least once
+  bool get isFullyLoaded => _phase2Done;
 
   // Per-path cache for browsing folders
   final Map<String, List<NcFile>> _folderCache = {};
@@ -54,23 +57,25 @@ class DataCacheService extends ChangeNotifier {
 
   Future<void> _loadAll() async {
     try {
-      // Phase 1: quota + root files — enough to show dashboard immediately
+      // Phase 1: quota + root files + recent — enough to show dashboard
       final phase1 = await Future.wait([
         _webdav.listFiles('/'),
         _webdav.getQuota(),
+        _webdav.listRecent(),
       ]);
 
       rootFiles = phase1[0] as List<NcFile>;
       quota = phase1[1] as Map<String, dynamic>;
+      recentFiles = phase1[2] as List<NcFile>;
       _folderCache['/'] = rootFiles;
       _updateQuotaWarning();
 
       isFirstLoad = false;
+      _phase2Done = false;
       notifyListeners(); // Dashboard can render now
 
       // Phase 2: everything else in background
       final phase2 = await Future.wait([
-        _webdav.listRecent(),
         _webdav.listSharedWithMe(),
         _webdav.listSharedByMe(),
         _webdav.listFavorites(),
@@ -78,13 +83,13 @@ class DataCacheService extends ChangeNotifier {
         _webdav.getActivity(),
       ]);
 
-      recentFiles = phase2[0] as List<NcFile>;
-      sharedWithMe = phase2[1] as List<NcFile>;
-      sharedByMe = phase2[2] as List<NcFile>;
-      starredFiles = phase2[3] as List<NcFile>;
-      trashFiles = phase2[4] as List<NcFile>;
-      activityFeed = phase2[5] as List<Map<String, dynamic>>;
+      sharedWithMe = phase2[0] as List<NcFile>;
+      sharedByMe = phase2[1] as List<NcFile>;
+      starredFiles = phase2[2] as List<NcFile>;
+      trashFiles = phase2[3] as List<NcFile>;
+      activityFeed = phase2[4] as List<Map<String, dynamic>>;
 
+      _phase2Done = true;
       notifyListeners(); // Other tabs can render now
     } catch (e) {
       debugPrint('DataCacheService._loadAll error: $e');
