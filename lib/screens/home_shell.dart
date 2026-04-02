@@ -33,7 +33,7 @@ class _HomeShellState extends State<HomeShell> {
   String _currentRoute = 'dashboard';
   String _searchQuery = '';
   String _currentFilesPath = '/';
-  final GlobalKey<dynamic> _filesScreenKey = GlobalKey();
+  Future<void> Function()? _currentRefresh;
 
   void _showNewMenu() {
     showModalBottomSheet(
@@ -291,15 +291,15 @@ class _HomeShellState extends State<HomeShell> {
           onNavigateToFiles: () => setState(() => _currentRoute = 'files'),
         );
       case 'files':
-        return FilesScreen(key: ValueKey('files_${_searchQuery}'), mode: FileViewMode.files, searchQuery: _searchQuery, onPathChanged: (p) => _currentFilesPath = p);
+        return FilesScreen(key: ValueKey('files_${_searchQuery}'), mode: FileViewMode.files, searchQuery: _searchQuery, onPathChanged: (p) => _currentFilesPath = p, onRefreshReady: (fn) => _currentRefresh = fn);
       case 'shared':
-        return FilesScreen(key: ValueKey('shared'), mode: FileViewMode.shared);
+        return FilesScreen(key: ValueKey('shared'), mode: FileViewMode.shared, onRefreshReady: (fn) => _currentRefresh = fn);
       case 'recent':
-        return FilesScreen(key: ValueKey('recent'), mode: FileViewMode.recent);
+        return FilesScreen(key: ValueKey('recent'), mode: FileViewMode.recent, onRefreshReady: (fn) => _currentRefresh = fn);
       case 'starred':
-        return FilesScreen(key: ValueKey('starred'), mode: FileViewMode.starred);
+        return FilesScreen(key: ValueKey('starred'), mode: FileViewMode.starred, onRefreshReady: (fn) => _currentRefresh = fn);
       case 'trash':
-        return FilesScreen(key: ValueKey('trash'), mode: FileViewMode.trash);
+        return FilesScreen(key: ValueKey('trash'), mode: FileViewMode.trash, onRefreshReady: (fn) => _currentRefresh = fn);
       case 'activity':
         return const ActivityScreen();
       case 'settings':
@@ -366,28 +366,8 @@ class _HomeShellState extends State<HomeShell> {
                     displayName: accountMgr.displayName ?? auth.displayName,
                     onProfileTap: () => _showProfileMenu(context),
                     onSettingsTap: () => setState(() => _currentRoute = 'settings'),
-                    onRefreshTap: () async {
-                      try {
-                        final cache = context.read<DataCacheService>();
-                        // Refresh current tab immediately
-                        switch (_currentRoute) {
-                          case 'files':
-                            cache.clearFolderCache(_currentFilesPath);
-                            await cache.refreshFolder(_currentFilesPath);
-                          case 'shared':
-                            await cache.refreshShared();
-                          case 'recent':
-                            await cache.refreshRecent();
-                          case 'starred':
-                            await cache.refreshStarred();
-                          case 'trash':
-                            await cache.refreshTrash();
-                          default:
-                            await cache.refreshQuota();
-                        }
-                        // Then refresh everything else in the background
-                        cache.refresh();
-                      } catch (_) {}
+                    onRefreshTap: () {
+                      _currentRefresh?.call();
                     },
                     onSearch: (query) {
                       setState(() {

@@ -28,8 +28,9 @@ class FilesScreen extends StatefulWidget {
   final FileViewMode mode;
   final String searchQuery;
   final ValueChanged<String>? onPathChanged;
+  final ValueChanged<Future<void> Function()>? onRefreshReady;
 
-  const FilesScreen({super.key, this.mode = FileViewMode.files, this.searchQuery = '', this.onPathChanged});
+  const FilesScreen({super.key, this.mode = FileViewMode.files, this.searchQuery = '', this.onPathChanged, this.onRefreshReady});
 
   @override
   State<FilesScreen> createState() => _FilesScreenState();
@@ -85,9 +86,9 @@ class _FilesScreenState extends State<FilesScreen> {
   void initState() {
     super.initState();
     _loadFiles();
-    // Listen to DataCacheService changes (e.g. refresh button) and reload
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<DataCacheService>().addListener(_onCacheChanged);
+      widget.onRefreshReady?.call(refresh);
     });
   }
 
@@ -98,6 +99,33 @@ class _FilesScreenState extends State<FilesScreen> {
   void _onCacheChanged() {
     if (!mounted || _cacheListenerPaused || _loadInProgress) return;
     _loadFiles();
+  }
+
+  /// Called by parent (home_shell) via GlobalKey to trigger visible refresh
+  Future<void> refresh() async {
+    if (!mounted) return;
+    setState(() => _isRefreshing = true);
+    try {
+      final cache = context.read<DataCacheService>();
+      switch (widget.mode) {
+        case FileViewMode.files:
+          cache.clearFolderCache(_currentPath);
+          await cache.refreshFolder(_currentPath);
+        case FileViewMode.shared:
+          await cache.refreshShared();
+        case FileViewMode.recent:
+          await cache.refreshRecent();
+        case FileViewMode.starred:
+          await cache.refreshStarred();
+        case FileViewMode.trash:
+          await cache.refreshTrash();
+      }
+    } catch (_) {}
+    _cacheListenerPaused = true;
+    await _loadFiles();
+    _cacheListenerPaused = false;
+    // Background full refresh
+    try { context.read<DataCacheService>().refresh(); } catch (_) {}
   }
 
   @override
@@ -2003,15 +2031,8 @@ class _FilesScreenState extends State<FilesScreen> {
                       ])
                     : Column(
                         children: [
-                          Builder(builder: (ctx) {
-                            try {
-                              final cache = ctx.watch<DataCacheService>();
-                              if (cache.isRefreshing || _isRefreshing) {
-                                return const LinearProgressIndicator(color: AppColors.green700, backgroundColor: AppColors.grey91, minHeight: 2);
-                              }
-                            } catch (_) {}
-                            return const SizedBox.shrink();
-                          }),
+                          if (_isRefreshing)
+                            const LinearProgressIndicator(color: AppColors.green700, backgroundColor: AppColors.grey91, minHeight: 2),
                           Expanded(
                             child: _filteredFiles.isEmpty
                                 ? _buildEmptyState()

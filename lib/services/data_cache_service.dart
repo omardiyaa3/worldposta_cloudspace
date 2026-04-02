@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/nc_file.dart';
 import 'auth_service.dart';
 import 'webdav_service.dart';
@@ -37,9 +35,6 @@ class DataCacheService extends ChangeNotifier {
   }
 
   Future<void> init() async {
-    // Load cached quota from disk for instant dashboard render
-    await _loadCachedQuota();
-    // Fetch fresh data from server
     _loadAll();
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadAll());
   }
@@ -60,28 +55,6 @@ class DataCacheService extends ChangeNotifier {
     notifyListeners();
   }
 
-  String get _cacheKey => 'quota_cache_${_auth.userId ?? ''}';
-
-  Future<void> _loadCachedQuota() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_cacheKey);
-      if (raw != null) {
-        quota = json.decode(raw) as Map<String, dynamic>;
-        _updateQuotaWarning();
-        isFirstLoad = false;
-        notifyListeners();
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _saveCachedQuota() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_cacheKey, json.encode(quota));
-    } catch (_) {}
-  }
-
   Future<void> _loadAll() async {
     try {
       // Phase 1: quota + root files + recent — enough to show dashboard
@@ -99,7 +72,6 @@ class DataCacheService extends ChangeNotifier {
 
       isFirstLoad = false;
       _phase2Done = false;
-      _saveCachedQuota(); // Persist for instant dashboard on next launch
       notifyListeners(); // Dashboard can render now
 
       // Phase 2: everything else in background
@@ -140,8 +112,6 @@ class DataCacheService extends ChangeNotifier {
   }
 
   Future<void> refreshFolder(String path) async {
-    isRefreshing = true;
-    // Don't notify here — _loadInProgress guard prevents feedback loop
     try {
       final files = await _webdav.listFiles(path);
       _folderCache[path] = files;
@@ -151,35 +121,29 @@ class DataCacheService extends ChangeNotifier {
     } catch (e) {
       debugPrint('refreshFolder error: $e');
     }
-    isRefreshing = false;
     notifyListeners();
   }
 
   Future<void> refreshQuota() async {
-    isRefreshing = true;
     try {
       quota = await _webdav.getQuota();
       _updateQuotaWarning();
     } catch (e) {
       debugPrint('refreshQuota error: $e');
     }
-    isRefreshing = false;
     notifyListeners();
   }
 
   Future<void> refreshTrash() async {
-    isRefreshing = true;
     try {
       trashFiles = await _webdav.listTrash();
     } catch (e) {
       debugPrint('refreshTrash error: $e');
     }
-    isRefreshing = false;
     notifyListeners();
   }
 
   Future<void> refreshShared() async {
-    isRefreshing = true;
     try {
       final results = await Future.wait([
         _webdav.listSharedWithMe(),
@@ -190,7 +154,6 @@ class DataCacheService extends ChangeNotifier {
     } catch (e) {
       debugPrint('refreshShared error: $e');
     }
-    isRefreshing = false;
     notifyListeners();
   }
 
