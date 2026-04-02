@@ -34,12 +34,18 @@ class DataCacheService extends ChangeNotifier {
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadAll());
   }
 
+  bool _fullRefreshRunning = false;
+
   Future<void> refresh() async {
+    // Don't stack multiple full refreshes
+    if (_fullRefreshRunning) return;
+    _fullRefreshRunning = true;
     isRefreshing = true;
     notifyListeners();
     _folderCache.clear();
     await _loadAll();
     isRefreshing = false;
+    _fullRefreshRunning = false;
     notifyListeners();
   }
 

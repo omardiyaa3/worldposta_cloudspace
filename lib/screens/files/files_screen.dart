@@ -1930,11 +1930,26 @@ class _FilesScreenState extends State<FilesScreen> {
               try {
                 _cacheListenerPaused = true;
                 final cache = context.read<DataCacheService>();
-                await cache.refresh();
+                // Refresh current tab immediately
+                switch (widget.mode) {
+                  case FileViewMode.files:
+                    cache.clearFolderCache(_currentPath);
+                    await cache.refreshFolder(_currentPath);
+                  case FileViewMode.shared:
+                    await cache.refreshShared();
+                  case FileViewMode.recent:
+                    await cache.refreshRecent();
+                  case FileViewMode.starred:
+                    await cache.refreshStarred();
+                  case FileViewMode.trash:
+                    await cache.refreshTrash();
+                }
               } catch (_) {} finally {
                 _cacheListenerPaused = false;
               }
               await _loadFiles();
+              // Full refresh in background (won't stack if already running)
+              try { context.read<DataCacheService>().refresh(); } catch (_) {}
             },
             child: _isLoading
                 ? ListView(children: const [SizedBox(height: 200), Center(child: CircularProgressIndicator(color: AppColors.green700))])
