@@ -398,8 +398,10 @@ class _HomeShellState extends State<HomeShell> {
                     ),
                   ),
                 // Sync status banner
-                Consumer<SyncService>(
-                  builder: (context, sync, _) {
+                Builder(
+                  builder: (context) {
+                    SyncService? sync;
+                    try { sync = context.watch<SyncService>(); } catch (_) { return const SizedBox.shrink(); }
                     if (!sync.isSyncing && !sync.isEnabled) return const SizedBox.shrink();
                     return GestureDetector(
                       onTap: () => setState(() => _currentRoute = 'sync_monitor'),

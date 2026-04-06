@@ -25,15 +25,18 @@ class _SyncConfigScreenState extends State<SyncConfigScreen> {
   @override
   void initState() {
     super.initState();
-    final sync = context.read<SyncService>();
-    final limitMb = sync.maxFileSizeBytes / (1024 * 1024);
+    double limitMb = 0;
+    try {
+      final sync = context.read<SyncService>();
+      limitMb = sync.maxFileSizeBytes / (1024 * 1024);
+      _syncDirection = sync.syncDirection;
+      _selectedFolders = Set.from(sync.includedFolders);
+      _excludedPaths = Set.from(sync.excludedPaths);
+      _excludedLocalPaths = Set.from(sync.excludedLocalPaths);
+    } catch (_) {}
     _fileSizeLimitCtrl = TextEditingController(
       text: limitMb > 0 ? limitMb.toStringAsFixed(1) : '0',
     );
-    _syncDirection = sync.syncDirection;
-    _selectedFolders = Set.from(sync.includedFolders);
-    _excludedPaths = Set.from(sync.excludedPaths);
-    _excludedLocalPaths = Set.from(sync.excludedLocalPaths);
   }
 
   @override
@@ -43,7 +46,9 @@ class _SyncConfigScreenState extends State<SyncConfigScreen> {
   }
 
   Future<void> _save() async {
-    final sync = context.read<SyncService>();
+    SyncService? sync;
+    try { sync = context.read<SyncService>(); } catch (_) {}
+    if (sync == null) return;
 
     // Sync direction
     await sync.setSyncDirection(_syncDirection);

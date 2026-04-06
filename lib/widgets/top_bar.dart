@@ -145,14 +145,6 @@ class _TopBarState extends State<TopBar> {
               tooltip: 'Refresh',
             ),
 
-          // Notification bell
-          IconButton(
-            onPressed: widget.onNotificationTap,
-            icon: const Icon(Icons.notifications_outlined, color: AppColors.azure47),
-            iconSize: isMobile ? 22 : 24,
-            padding: isMobile ? const EdgeInsets.all(6) : const EdgeInsets.all(8),
-            constraints: isMobile ? const BoxConstraints() : null,
-          ),
 
           // Settings
           IconButton(

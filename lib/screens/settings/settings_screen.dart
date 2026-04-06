@@ -27,9 +27,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadDownloadPath();
-    final sync = context.read<SyncService>();
-    final dlMb = sync.downloadBytesPerSec / (1024 * 1024);
-    final ulMb = sync.uploadBytesPerSec / (1024 * 1024);
+    double dlMb = 0, ulMb = 0;
+    try {
+      final sync = context.read<SyncService>();
+      dlMb = sync.downloadBytesPerSec / (1024 * 1024);
+      ulMb = sync.uploadBytesPerSec / (1024 * 1024);
+    } catch (_) {}
     _downloadLimitCtrl = TextEditingController(
       text: dlMb > 0 ? dlMb.toStringAsFixed(1) : '0',
     );
@@ -53,7 +56,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
-    final sync = context.watch<SyncService>();
+    SyncService? sync;
+    try { sync = context.watch<SyncService>(); } catch (_) {}
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
@@ -113,13 +117,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // Sync folder path
               _ReadOnlyField(
                 label: 'Sync Folder',
-                value: sync.syncFolderPath != null ? sync.syncFolderPath!.split('/').last : 'Not configured',
+                value: sync?.syncFolderPath != null ? sync!.syncFolderPath!.split('/').last : 'Not configured',
               ),
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton.icon(
-                  onPressed: () => _changeSyncFolder(sync),
+                  onPressed: sync != null ? () => _changeSyncFolder(sync!) : null,
                   icon: const Icon(Icons.folder_open, size: 18),
                   label: const Text('Change Folder'),
                   style: OutlinedButton.styleFrom(
@@ -179,7 +183,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // Conflict resolution
               _DropdownField<ConflictResolution>(
                 label: 'Conflict Resolution',
-                value: sync.conflictResolution,
+                value: sync?.conflictResolution ?? ConflictResolution.newestWins,
                 items: const [
                   DropdownMenuItem(
                     value: ConflictResolution.serverWins,
@@ -195,7 +199,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
                 onChanged: (v) {
-                  if (v != null) sync.setConflictResolution(v);
+                  if (v != null) sync?.setConflictResolution(v);
                 },
               ),
 
@@ -204,7 +208,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // Sync direction
               _DropdownField<SyncDirection>(
                 label: 'Sync Direction',
-                value: sync.syncDirection,
+                value: sync?.syncDirection ?? SyncDirection.twoWay,
                 items: const [
                   DropdownMenuItem(
                     value: SyncDirection.twoWay,
@@ -220,7 +224,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
                 onChanged: (v) {
-                  if (v != null) sync.setSyncDirection(v);
+                  if (v != null) sync?.setSyncDirection(v);
                 },
               ),
 
@@ -229,8 +233,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // File size limit display
               _ReadOnlyField(
                 label: 'File Size Limit',
-                value: sync.maxFileSizeBytes > 0
-                    ? '${(sync.maxFileSizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+                value: (sync?.maxFileSizeBytes ?? 0) > 0
+                    ? '${((sync?.maxFileSizeBytes ?? 0) / (1024 * 1024)).toStringAsFixed(1)} MB'
                     : 'No limit',
               ),
 
@@ -272,20 +276,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: 'Download Speed Limit (MB/s)',
                 hint: '0 = unlimited',
                 controller: _downloadLimitCtrl,
-                onSubmitted: (_) => _applyBandwidth(sync),
+                onSubmitted: (_) => sync != null ? _applyBandwidth(sync) : null,
               ),
               const SizedBox(height: 12),
               _InputField(
                 label: 'Upload Speed Limit (MB/s)',
                 hint: '0 = unlimited',
                 controller: _uploadLimitCtrl,
-                onSubmitted: (_) => _applyBandwidth(sync),
+                onSubmitted: (_) => sync != null ? _applyBandwidth(sync) : null,
               ),
               const SizedBox(height: 12),
               Align(
                 alignment: Alignment.centerLeft,
                 child: ElevatedButton(
-                  onPressed: () => _applyBandwidth(sync),
+                  onPressed: () => sync != null ? _applyBandwidth(sync) : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.green800,
                     foregroundColor: AppColors.white,
@@ -376,9 +380,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       dialogTitle: 'Choose a local folder to sync with CloudSpace',
     );
     if (result == null) return;
-    await sync.setSyncFolder(result, remotePath: '/');
-    if (sync.isEnabled) {
-      sync.startSync();
+    await sync?.setSyncFolder(result, remotePath: '/');
+    if (sync?.isEnabled == true) {
+      sync?.startSync();
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -395,7 +399,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final ulMb = double.tryParse(_uploadLimitCtrl.text) ?? 0;
     final dlBps = (dlMb * 1024 * 1024).round();
     final ulBps = (ulMb * 1024 * 1024).round();
-    sync.setBandwidthLimits(downloadBps: dlBps, uploadBps: ulBps);
+    sync?.setBandwidthLimits(downloadBps: dlBps, uploadBps: ulBps);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Bandwidth limits updated'),

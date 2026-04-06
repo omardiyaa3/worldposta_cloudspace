@@ -8,8 +8,12 @@ class SyncMonitorScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<SyncService>(
-      builder: (context, sync, _) {
+    return Builder(
+      builder: (context) {
+        SyncService sync;
+        try { sync = context.watch<SyncService>(); } catch (_) {
+          return const Scaffold(body: Center(child: Text('Sync not available')));
+        }
         return Scaffold(
           backgroundColor: AppColors.grey98,
           appBar: AppBar(
