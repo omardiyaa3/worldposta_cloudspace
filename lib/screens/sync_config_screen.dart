@@ -18,9 +18,9 @@ class SyncConfigScreen extends StatefulWidget {
 class _SyncConfigScreenState extends State<SyncConfigScreen> {
   late TextEditingController _fileSizeLimitCtrl;
   Set<String> _selectedFolders = {};
-  late SyncDirection _syncDirection;
-  late Set<String> _excludedPaths;
-  late Set<String> _excludedLocalPaths;
+  SyncDirection _syncDirection = SyncDirection.twoWay;
+  Set<String> _excludedPaths = {};
+  Set<String> _excludedLocalPaths = {};
 
   @override
   void initState() {
