@@ -795,17 +795,20 @@ class _FilesScreenState extends State<FilesScreen> {
       final auth = context.read<AuthService>();
       final timestamp = picked.millisecondsSinceEpoch ~/ 1000;
       final url = Uri.parse(
-        '${auth.serverUrl}/ocs/v2.php/apps/files_reminders/api/v1/reminders/${file.fileId}',
+        '${auth.serverUrl}/ocs/v1.php/apps/files_reminders/api/v1/reminders/${file.fileId}?format=json',
       );
+      debugPrint('Reminder URL: $url fileId=${file.fileId}');
       final response = await WebDavService.sharedHttpClient.put(
         url,
         headers: {
           'Authorization': auth.basicAuth,
           'OCS-APIRequest': 'true',
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: '{"dueDate":"${picked.toUtc().toIso8601String()}"}',
       );
+      debugPrint('Reminder response: ${response.statusCode} ${response.body}');
 
       if (mounted) {
         if (response.statusCode == 200 || response.statusCode == 201) {
@@ -1161,7 +1164,7 @@ class _FilesScreenState extends State<FilesScreen> {
                           }, body: {
                             'path': file.path,
                             'shareType': '3',
-                            'permissions': '1',
+                            'permissions': '$_newSharePermission',
                             if (_sharePasswordController.text.isNotEmpty)
                               'password': _sharePasswordController.text,
                             if (_shareExpiration != null)
@@ -2708,8 +2711,6 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
   Timer? _debounce;
   List<Map<String, dynamic>> _suggestions = [];
   bool _showSuggestions = false;
-  final LayerLink _layerLink = LayerLink();
-  OverlayEntry? _overlayEntry;
 
   @override
   void initState() {
@@ -2720,7 +2721,6 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
   @override
   void dispose() {
     _debounce?.cancel();
-    _removeOverlay();
     widget.controller.removeListener(_onTextChanged);
     super.dispose();
   }
@@ -2729,7 +2729,6 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
     _debounce?.cancel();
     final query = widget.controller.text.trim();
     if (query.length < 2) {
-      _removeOverlay();
       setState(() {
         _suggestions = [];
         _showSuggestions = false;
@@ -2759,11 +2758,6 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
             _suggestions = results;
             _showSuggestions = results.isNotEmpty;
           });
-          if (_showSuggestions) {
-            _showOverlay();
-          } else {
-            _removeOverlay();
-          }
         }
       }
     } catch (e) {
@@ -2771,90 +2765,67 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
     }
   }
 
-  void _showOverlay() {
-    _removeOverlay();
-    _overlayEntry = OverlayEntry(
-      builder: (context) => Positioned(
-        width: _getFieldWidth(),
-        child: CompositedTransformFollower(
-          link: _layerLink,
-          showWhenUnlinked: false,
-          offset: const Offset(0, 48),
-          child: Material(
-            elevation: 4,
-            borderRadius: BorderRadius.circular(8),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 200),
-              child: ListView.builder(
-                padding: EdgeInsets.zero,
-                shrinkWrap: true,
-                itemCount: _suggestions.length,
-                itemBuilder: (context, index) {
-                  final item = _suggestions[index];
-                  final id = item['id'] as String? ?? '';
-                  final label = item['label'] as String? ?? id;
-                  final subline = item['subline'] as String? ?? '';
-                  return ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.person_outline, size: 20, color: AppColors.azure47),
-                    title: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                    subtitle: subline.isNotEmpty ? Text(subline, style: const TextStyle(fontSize: 11, color: AppColors.muted)) : null,
-                    onTap: () {
-                      widget.controller.text = id;
-                      widget.controller.selection = TextSelection.fromPosition(
-                        TextPosition(offset: id.length),
-                      );
-                      _removeOverlay();
-                      setState(() {
-                        _suggestions = [];
-                        _showSuggestions = false;
-                      });
-                    },
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    Overlay.of(context).insert(_overlayEntry!);
-  }
-
-  void _removeOverlay() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-  }
-
-  double _getFieldWidth() {
-    final renderBox = context.findRenderObject() as RenderBox?;
-    return renderBox?.size.width ?? 300;
-  }
-
   @override
   Widget build(BuildContext context) {
-    return CompositedTransformTarget(
-      link: _layerLink,
-      child: TextField(
-        controller: widget.controller,
-        decoration: InputDecoration(
-          hintText: 'Username or email',
-          filled: true,
-          fillColor: AppColors.grey96,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          suffixIcon: widget.controller.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear, size: 16),
-                  onPressed: () {
-                    widget.controller.clear();
-                    _removeOverlay();
-                  },
-                )
-              : null,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: widget.controller,
+          decoration: InputDecoration(
+            hintText: 'Username or email',
+            filled: true,
+            fillColor: AppColors.grey96,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            suffixIcon: widget.controller.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear, size: 16),
+                    onPressed: () {
+                      widget.controller.clear();
+                      setState(() { _suggestions = []; _showSuggestions = false; });
+                    },
+                  )
+                : null,
+          ),
+          style: const TextStyle(fontSize: 14),
         ),
-        style: const TextStyle(fontSize: 14),
-      ),
+        if (_showSuggestions && _suggestions.isNotEmpty)
+          Container(
+            constraints: const BoxConstraints(maxHeight: 200),
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(
+              color: AppColors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.grey91),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 8, offset: const Offset(0, 2))],
+            ),
+            child: ListView.builder(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              itemCount: _suggestions.length,
+              itemBuilder: (context, index) {
+                final item = _suggestions[index];
+                final id = item['id'] as String? ?? '';
+                final label = item['label'] as String? ?? id;
+                final subline = item['subline'] as String? ?? '';
+                return ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.person_outline, size: 20, color: AppColors.azure47),
+                  title: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: subline.isNotEmpty ? Text(subline, style: const TextStyle(fontSize: 11, color: AppColors.muted)) : null,
+                  onTap: () {
+                    widget.controller.text = id;
+                    widget.controller.selection = TextSelection.fromPosition(
+                      TextPosition(offset: id.length),
+                    );
+                    setState(() { _suggestions = []; _showSuggestions = false; });
+                  },
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 }
