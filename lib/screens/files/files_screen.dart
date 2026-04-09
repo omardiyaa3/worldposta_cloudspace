@@ -832,6 +832,7 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> _shareFile(NcFile file) async {
+    _newSharePermission = 1; // Default to read-only for public links
     final auth = context.read<AuthService>();
     final sharesUrl = Uri.parse(
       '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?path=${Uri.encodeComponent(file.path)}&format=json',
@@ -1147,6 +1148,15 @@ class _FilesScreenState extends State<FilesScreen> {
                   const SizedBox(height: 20),
 
                   // --- Create link section ---
+                  CheckboxListTile(
+                    value: _newSharePermission > 1,
+                    onChanged: (v) => setSheetState(() => _newSharePermission = (v == true) ? 15 : 1),
+                    title: const Text('Allow editing', style: TextStyle(fontSize: 13)),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    activeColor: AppColors.green800,
+                  ),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
@@ -2745,14 +2755,17 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
       final url = Uri.parse(
         '${widget.serverUrl}/ocs/v2.php/core/autocomplete/get?search=${Uri.encodeQueryComponent(query)}&itemType=file&format=json',
       );
+      debugPrint('Autocomplete query: $url');
       final response = await WebDavService.sharedHttpClient.get(url, headers: {
         'Authorization': widget.basicAuth,
         'OCS-APIRequest': 'true',
       });
+      debugPrint('Autocomplete response: ${response.statusCode} ${response.body.substring(0, response.body.length.clamp(0, 200))}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final results = (data['ocs']?['data'] as List? ?? [])
             .cast<Map<String, dynamic>>();
+        debugPrint('Autocomplete results: ${results.length}');
         if (mounted) {
           setState(() {
             _suggestions = results;
