@@ -2752,20 +2752,42 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
 
   Future<void> _fetchSuggestions(String query) async {
     try {
+      // Use sharees endpoint — works with LDAP and returns users, groups, rooms
       final url = Uri.parse(
-        '${widget.serverUrl}/ocs/v2.php/core/autocomplete/get?search=${Uri.encodeQueryComponent(query)}&itemType=file&format=json',
+        '${widget.serverUrl}/ocs/v2.php/apps/files_sharing/api/v1/sharees?search=${Uri.encodeQueryComponent(query)}&itemType=file&format=json&perPage=20',
       );
-      debugPrint('Autocomplete query: $url');
       final response = await WebDavService.sharedHttpClient.get(url, headers: {
         'Authorization': widget.basicAuth,
         'OCS-APIRequest': 'true',
       });
-      debugPrint('Autocomplete response: ${response.statusCode} ${response.body.substring(0, response.body.length.clamp(0, 200))}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final results = (data['ocs']?['data'] as List? ?? [])
-            .cast<Map<String, dynamic>>();
-        debugPrint('Autocomplete results: ${results.length}');
+        final shareeData = data['ocs']?['data'] as Map<String, dynamic>? ?? {};
+        final results = <Map<String, dynamic>>[];
+
+        // Collect from all categories including exact matches
+        final categories = ['users', 'groups', 'rooms', 'emails', 'remotes', 'remote_groups'];
+        final categoryLabels = {
+          'users': 'User', 'groups': 'Group', 'rooms': 'Conversation',
+          'emails': 'Email', 'remotes': 'Federated', 'remote_groups': 'Remote group',
+        };
+        for (final category in categories) {
+          for (final section in [shareeData, shareeData['exact'] as Map? ?? {}]) {
+            final items = section[category] as List? ?? [];
+            for (final item in items) {
+              final id = item['value']?['shareWith'] ?? '';
+              // Skip duplicates
+              if (id.isEmpty || results.any((r) => r['id'] == id)) continue;
+              results.add({
+                'id': id,
+                'label': item['label'] ?? id,
+                'shareType': item['value']?['shareType'] ?? 0,
+                'subline': categoryLabels[category] ?? '',
+              });
+            }
+          }
+        }
+
         if (mounted) {
           setState(() {
             _suggestions = results;
@@ -2822,11 +2844,17 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
                 final id = item['id'] as String? ?? '';
                 final label = item['label'] as String? ?? id;
                 final subline = item['subline'] as String? ?? '';
+                final shareType = item['shareType'] as int? ?? 0;
+                final icon = shareType == 4 ? Icons.email_outlined
+                    : shareType == 6 ? Icons.cloud_outlined
+                    : shareType == 10 ? Icons.chat_outlined
+                    : shareType == 1 ? Icons.group_outlined
+                    : Icons.person_outline;
                 return ListTile(
                   dense: true,
-                  leading: const Icon(Icons.person_outline, size: 20, color: AppColors.azure47),
+                  leading: Icon(icon, size: 20, color: AppColors.azure47),
                   title: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                  subtitle: subline.isNotEmpty ? Text(subline, style: const TextStyle(fontSize: 11, color: AppColors.muted)) : null,
+                  subtitle: Text(subline.isNotEmpty ? '$subline — $id' : id, style: const TextStyle(fontSize: 11, color: AppColors.muted)),
                   onTap: () {
                     widget.controller.text = id;
                     widget.controller.selection = TextSelection.fromPosition(
