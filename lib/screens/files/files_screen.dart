@@ -2721,6 +2721,8 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
   Timer? _debounce;
   List<Map<String, dynamic>> _suggestions = [];
   bool _showSuggestions = false;
+  bool _suppressSearch = false;
+  bool _loadedRecommended = false;
 
   @override
   void initState() {
@@ -2736,13 +2738,20 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
   }
 
   void _onTextChanged() {
+    if (_suppressSearch) {
+      _suppressSearch = false;
+      return;
+    }
     _debounce?.cancel();
     final query = widget.controller.text.trim();
+    if (query.isEmpty) {
+      // Show recommended when field is cleared
+      if (_loadedRecommended) return;
+      _loadRecommended();
+      return;
+    }
     if (query.length < 2) {
-      setState(() {
-        _suggestions = [];
-        _showSuggestions = false;
-      });
+      setState(() { _suggestions = []; _showSuggestions = false; });
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 300), () {
@@ -2750,9 +2759,62 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
     });
   }
 
+  Future<void> _loadRecommended() async {
+    try {
+      final url = Uri.parse(
+        '${widget.serverUrl}/ocs/v2.php/apps/files_sharing/api/v1/sharees_recommended?itemType=file&format=json',
+      );
+      final response = await WebDavService.sharedHttpClient.get(url, headers: {
+        'Authorization': widget.basicAuth,
+        'OCS-APIRequest': 'true',
+      });
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final results = _parseSharees(data['ocs']?['data'] as Map<String, dynamic>? ?? {});
+        if (mounted) {
+          setState(() {
+            _suggestions = results;
+            _showSuggestions = results.isNotEmpty;
+            _loadedRecommended = true;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _onFocus() {
+    if (widget.controller.text.isEmpty && !_loadedRecommended) {
+      _loadRecommended();
+    }
+  }
+
+  List<Map<String, dynamic>> _parseSharees(Map<String, dynamic> shareeData) {
+    final results = <Map<String, dynamic>>[];
+    final categories = ['users', 'groups', 'rooms', 'emails', 'remotes', 'remote_groups'];
+    final categoryLabels = {
+      'users': 'User', 'groups': 'Group', 'rooms': 'Conversation',
+      'emails': 'Email', 'remotes': 'Federated', 'remote_groups': 'Remote group',
+    };
+    for (final category in categories) {
+      for (final section in [shareeData, shareeData['exact'] as Map? ?? {}]) {
+        final items = section[category] as List? ?? [];
+        for (final item in items) {
+          final id = item['value']?['shareWith'] ?? '';
+          if (id.isEmpty || results.any((r) => r['id'] == id)) continue;
+          results.add({
+            'id': id,
+            'label': item['label'] ?? id,
+            'shareType': item['value']?['shareType'] ?? 0,
+            'subline': categoryLabels[category] ?? '',
+          });
+        }
+      }
+    }
+    return results;
+  }
+
   Future<void> _fetchSuggestions(String query) async {
     try {
-      // Use sharees endpoint — works with LDAP and returns users, groups, rooms
       final url = Uri.parse(
         '${widget.serverUrl}/ocs/v2.php/apps/files_sharing/api/v1/sharees?search=${Uri.encodeQueryComponent(query)}&itemType=file&format=json&perPage=20',
       );
@@ -2762,32 +2824,7 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
       });
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final shareeData = data['ocs']?['data'] as Map<String, dynamic>? ?? {};
-        final results = <Map<String, dynamic>>[];
-
-        // Collect from all categories including exact matches
-        final categories = ['users', 'groups', 'rooms', 'emails', 'remotes', 'remote_groups'];
-        final categoryLabels = {
-          'users': 'User', 'groups': 'Group', 'rooms': 'Conversation',
-          'emails': 'Email', 'remotes': 'Federated', 'remote_groups': 'Remote group',
-        };
-        for (final category in categories) {
-          for (final section in [shareeData, shareeData['exact'] as Map? ?? {}]) {
-            final items = section[category] as List? ?? [];
-            for (final item in items) {
-              final id = item['value']?['shareWith'] ?? '';
-              // Skip duplicates
-              if (id.isEmpty || results.any((r) => r['id'] == id)) continue;
-              results.add({
-                'id': id,
-                'label': item['label'] ?? id,
-                'shareType': item['value']?['shareType'] ?? 0,
-                'subline': categoryLabels[category] ?? '',
-              });
-            }
-          }
-        }
-
+        final results = _parseSharees(data['ocs']?['data'] as Map<String, dynamic>? ?? {});
         if (mounted) {
           setState(() {
             _suggestions = results;
@@ -2807,6 +2844,7 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
       children: [
         TextField(
           controller: widget.controller,
+          onTap: _onFocus,
           decoration: InputDecoration(
             hintText: 'Username or email',
             filled: true,
@@ -2856,6 +2894,7 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
                   title: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                   subtitle: Text(subline.isNotEmpty ? '$subline — $id' : id, style: const TextStyle(fontSize: 11, color: AppColors.muted)),
                   onTap: () {
+                    _suppressSearch = true;
                     widget.controller.text = id;
                     widget.controller.selection = TextSelection.fromPosition(
                       TextPosition(offset: id.length),
