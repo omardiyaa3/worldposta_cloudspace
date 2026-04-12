@@ -2738,16 +2738,11 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
   }
 
   void _onTextChanged() {
-    if (_suppressSearch) {
-      _suppressSearch = false;
-      return;
-    }
+    if (_suppressSearch) return;
     _debounce?.cancel();
     final query = widget.controller.text.trim();
     if (query.isEmpty) {
-      // Show recommended when field is cleared
-      if (_loadedRecommended) return;
-      _loadRecommended();
+      setState(() { _suggestions = []; _showSuggestions = false; });
       return;
     }
     if (query.length < 2) {
@@ -2783,7 +2778,8 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
   }
 
   void _onFocus() {
-    if (widget.controller.text.isEmpty && !_loadedRecommended) {
+    _suppressSearch = false;
+    if (widget.controller.text.isEmpty) {
       _loadRecommended();
     }
   }
