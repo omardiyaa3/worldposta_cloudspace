@@ -897,7 +897,7 @@ class _FilesScreenState extends State<FilesScreen> {
                       ),
                     ),
                   // Error banner inside the sheet
-                  if (shareError.isNotEmpty)
+                  if (shareError.isNotEmpty && shareError != '...')
                     Container(
                       width: double.infinity,
                       margin: const EdgeInsets.only(bottom: 12),
