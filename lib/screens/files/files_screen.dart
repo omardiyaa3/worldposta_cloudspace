@@ -1051,13 +1051,18 @@ class _FilesScreenState extends State<FilesScreen> {
                     width: double.infinity,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: AppColors.green700),
-                      onPressed: () async {
+                      onPressed: shareError == '...' ? null : () async {
                         final shareWith = shareWithController.text.trim();
                         if (shareWith.isEmpty) return;
+                        // Check if already shared with this person
+                        if (existingShares.any((s) => s['share_with'] == shareWith || s['share_with_displayname'] == shareWith)) {
+                          setSheetState(() => shareError = 'Already shared with $shareWith');
+                          return;
+                        }
+                        setSheetState(() { shareError = '...'; shareSuccess = ''; }); // '...' = loading
                         final isEmail = shareWith.contains('@');
                         final shareType = isEmail ? '4' : '0';
                         try {
-                          // Create share with requested permissions
                           final postUrl = Uri.parse(
                             '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?format=json',
                           );
@@ -1142,7 +1147,9 @@ class _FilesScreenState extends State<FilesScreen> {
                             setSheetState(() => shareError = 'Share failed: $e');
                           }
                         },
-                        child: const Text('Share'),
+                        child: shareError == '...'
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.white))
+                            : const Text('Share'),
                       ),
                     ),
                   const SizedBox(height: 20),
