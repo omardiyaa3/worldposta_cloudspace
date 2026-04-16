@@ -584,6 +584,8 @@ class _HomeShellState extends State<HomeShell> {
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
+                  // Pop all pushed routes (file preview, settings, etc.) back to home
+                  Navigator.of(context).popUntil((route) => route.isFirst);
                   accountMgr.switchAccount(account.id);
                 },
               )),

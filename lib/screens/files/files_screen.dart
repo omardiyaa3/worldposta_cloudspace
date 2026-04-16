@@ -470,7 +470,10 @@ class _FilesScreenState extends State<FilesScreen> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
       final remotePath = '$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$fileName';
-      await webdav.uploadFile(remotePath, Uint8List(0), failIfExists: true);
+      // Check if file exists on server before creating
+      final etag = await webdav.getFolderEtag(remotePath);
+      if (etag != null) throw Exception('FILE_EXISTS');
+      await webdav.uploadFile(remotePath, Uint8List(0));
       // Clear just this folder's cache, then reload once
       if (mounted) {
         context.read<DataCacheService>().clearFolderCache(_currentPath);
