@@ -647,7 +647,7 @@ class _FilesScreenState extends State<FilesScreen> {
     final webdav = WebDavService(auth);
     final destination = await showDialog<String>(
       context: context,
-      builder: (ctx) => _MoveToDialog(webdav: webdav, fileName: file.name),
+      builder: (ctx) => _MoveToDialog(webdav: webdav, fileName: file.name, filePath: file.path),
     );
     if (destination == null) return;
     try {
@@ -1062,10 +1062,15 @@ class _FilesScreenState extends State<FilesScreen> {
                           return;
                         }
                         setSheetState(() { shareError = '...'; shareSuccess = ''; }); // '...' = loading
-                        // Use shareType from autocomplete selection, or guess from format
-                        final shareType = _selectedShareType != null
-                            ? '$_selectedShareType'
-                            : (shareWith.contains('@') ? '0' : '0'); // Default to user share
+                        // Use shareType from autocomplete if available
+                        // If user typed manually: try as user (0) first, if 404 retry as email (4)
+                        int resolvedType = _selectedShareType ?? -1;
+                        if (resolvedType == 10) resolvedType = 0; // Talk room → try as user
+                        if (resolvedType == -1) {
+                          // No autocomplete selection — guess from format
+                          resolvedType = 0; // Try user first
+                        }
+                        final shareType = '$resolvedType';
                         try {
                           final postUrl = Uri.parse(
                             '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?format=json',
@@ -1085,8 +1090,30 @@ class _FilesScreenState extends State<FilesScreen> {
                           });
                             debugPrint('Share create response: ${resp.statusCode} ${resp.body}');
                             if (!ctx.mounted) return;
+
+                            // If user share failed with 404, retry as email share
+                            var finalResp = resp;
                             if (resp.statusCode == 200) {
-                              final data = jsonDecode(resp.body);
+                              final checkData = jsonDecode(resp.body);
+                              final checkMeta = checkData['ocs']?['meta'];
+                              if (checkMeta?['statuscode'] == 404 && shareType == '0' && shareWith.contains('@')) {
+                                debugPrint('User share 404, retrying as email (type 4)...');
+                                finalResp = await WebDavService.sharedHttpClient.post(postUrl, headers: {
+                                  ...headers,
+                                  'Content-Type': 'application/x-www-form-urlencoded',
+                                }, body: {
+                                  'path': file.path,
+                                  'shareType': '4',
+                                  'shareWith': shareWith,
+                                  'permissions': '$_newSharePermission',
+                                });
+                                debugPrint('Email share response: ${finalResp.statusCode} ${finalResp.body}');
+                              }
+                            }
+                            if (!ctx.mounted) return;
+
+                            if (finalResp.statusCode == 200) {
+                              final data = jsonDecode(finalResp.body);
                               final meta = data['ocs']?['meta'];
                               if (meta != null && meta['statuscode'] != null && meta['statuscode'] != 200 && meta['statuscode'] != 100) {
                                 setSheetState(() => shareError = meta['message'] ?? 'Share failed');
@@ -1140,9 +1167,9 @@ class _FilesScreenState extends State<FilesScreen> {
                                 shareError = '';
                               });
                             } else {
-                              String errorMsg = 'Share failed: ${resp.statusCode}';
+                              String errorMsg = 'Share failed: ${finalResp.statusCode}';
                               try {
-                                final data = jsonDecode(resp.body);
+                                final data = jsonDecode(finalResp.body);
                                 errorMsg = data['ocs']?['meta']?['message'] ?? errorMsg;
                               } catch (_) {}
                               setSheetState(() => shareError = errorMsg);
@@ -2799,7 +2826,7 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
 
   List<Map<String, dynamic>> _parseSharees(Map<String, dynamic> shareeData) {
     final results = <Map<String, dynamic>>[];
-    final categories = ['users', 'groups', 'rooms', 'emails', 'remotes', 'remote_groups'];
+    final categories = ['users', 'emails', 'remotes', 'groups', 'remote_groups', 'rooms'];
     final categoryLabels = {
       'users': 'User', 'groups': 'Group', 'rooms': 'Conversation',
       'emails': 'Email', 'remotes': 'Federated', 'remote_groups': 'Remote group',
@@ -2924,7 +2951,8 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
 class _MoveToDialog extends StatefulWidget {
   final WebDavService webdav;
   final String fileName;
-  const _MoveToDialog({required this.webdav, required this.fileName});
+  final String filePath; // Path of the item being moved (to exclude from list)
+  const _MoveToDialog({required this.webdav, required this.fileName, required this.filePath});
 
   @override
   State<_MoveToDialog> createState() => _MoveToDialogState();
@@ -2945,7 +2973,7 @@ class _MoveToDialogState extends State<_MoveToDialog> {
     setState(() => _loading = true);
     try {
       final items = await widget.webdav.listFiles(_currentPath);
-      _folders = items.where((f) => f.isDirectory).toList()
+      _folders = items.where((f) => f.isDirectory && f.path != widget.filePath).toList()
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
