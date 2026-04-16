@@ -386,6 +386,14 @@ class _FilesScreenState extends State<FilesScreen> {
       },
     );
     if (name == null || name.isEmpty) return;
+    if (_files.any((f) => f.name == name)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('"$name" already exists'), backgroundColor: AppColors.filePdf),
+        );
+      }
+      return;
+    }
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
@@ -462,7 +470,15 @@ class _FilesScreenState extends State<FilesScreen> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
       final remotePath = '$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$fileName';
-      // Create an empty file on the server
+      // Check if file already exists
+      if (_files.any((f) => f.name == fileName)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('"$fileName" already exists'), backgroundColor: AppColors.filePdf),
+          );
+        }
+        return;
+      }
       await webdav.uploadFile(remotePath, Uint8List(0));
       // Clear just this folder's cache, then reload once
       if (mounted) {
