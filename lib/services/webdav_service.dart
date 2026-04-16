@@ -79,6 +79,17 @@ class WebDavService {
     }
   }
 
+  /// Check if a file/folder exists on the server (HEAD request)
+  Future<bool> fileExists(String remotePath) async {
+    final url = _buildUri(remotePath);
+    try {
+      final response = await _client.head(url, headers: _headers);
+      return response.statusCode == 200 || response.statusCode == 207;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// List files in a directory using PROPFIND
   Future<List<NcFile>> listFiles(String remotePath) async {
     final url = _buildUri(remotePath);
