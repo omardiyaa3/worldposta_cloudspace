@@ -856,6 +856,7 @@ class _FilesScreenState extends State<FilesScreen> {
     if (!mounted) return;
 
     final shareWithController = TextEditingController();
+    int? _selectedShareType; // Store shareType from autocomplete selection
 
     await showModalBottomSheet(
       context: context,
@@ -940,6 +941,7 @@ class _FilesScreenState extends State<FilesScreen> {
                     controller: shareWithController,
                     serverUrl: auth.serverUrl!,
                     basicAuth: auth.basicAuth,
+                    onShareTypeSelected: (type) => _selectedShareType = type,
                   ),
                   const SizedBox(height: 8),
                   // Permission picker for new share
@@ -1060,8 +1062,10 @@ class _FilesScreenState extends State<FilesScreen> {
                           return;
                         }
                         setSheetState(() { shareError = '...'; shareSuccess = ''; }); // '...' = loading
-                        final isEmail = shareWith.contains('@');
-                        final shareType = isEmail ? '4' : '0';
+                        // Use shareType from autocomplete selection, or guess from format
+                        final shareType = _selectedShareType != null
+                            ? '$_selectedShareType'
+                            : (shareWith.contains('@') ? '0' : '0'); // Default to user share
                         try {
                           final postUrl = Uri.parse(
                             '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?format=json',
@@ -2713,11 +2717,13 @@ class _ShareAutocompleteField extends StatefulWidget {
   final TextEditingController controller;
   final String serverUrl;
   final String basicAuth;
+  final ValueChanged<int>? onShareTypeSelected;
 
   const _ShareAutocompleteField({
     required this.controller,
     required this.serverUrl,
     required this.basicAuth,
+    this.onShareTypeSelected,
   });
 
   @override
@@ -2902,6 +2908,7 @@ class _ShareAutocompleteFieldState extends State<_ShareAutocompleteField> {
                     widget.controller.selection = TextSelection.fromPosition(
                       TextPosition(offset: id.length),
                     );
+                    widget.onShareTypeSelected?.call(shareType);
                     setState(() { _suggestions = []; _showSuggestions = false; });
                   },
                 );
