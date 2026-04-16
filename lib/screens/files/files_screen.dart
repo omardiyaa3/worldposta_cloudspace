@@ -470,16 +470,7 @@ class _FilesScreenState extends State<FilesScreen> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
       final remotePath = '$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$fileName';
-      // Check if file already exists
-      if (_files.any((f) => f.name == fileName)) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('"$fileName" already exists'), backgroundColor: AppColors.filePdf),
-          );
-        }
-        return;
-      }
-      await webdav.uploadFile(remotePath, Uint8List(0));
+      await webdav.uploadFile(remotePath, Uint8List(0), failIfExists: true);
       // Clear just this folder's cache, then reload once
       if (mounted) {
         context.read<DataCacheService>().clearFolderCache(_currentPath);
@@ -505,7 +496,10 @@ class _FilesScreenState extends State<FilesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_friendlyError(e))));
+        final msg = e.toString().contains('FILE_EXISTS')
+            ? '"$fileName" already exists'
+            : _friendlyError(e);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: AppColors.filePdf));
       }
     }
   }

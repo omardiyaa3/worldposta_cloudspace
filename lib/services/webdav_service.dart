@@ -244,18 +244,22 @@ class WebDavService {
   }
 
   /// Upload a file from bytes
-  Future<void> uploadFile(String remotePath, Uint8List data) async {
+  Future<void> uploadFile(String remotePath, Uint8List data, {bool failIfExists = false}) async {
     final url = _buildUri(remotePath);
-    debugPrint('Upload to: $url (${data.length} bytes)');
+    debugPrint('Upload to: $url (${data.length} bytes) failIfExists=$failIfExists');
     final response = await _client.put(
       url,
       headers: {
         ..._headers,
         'Content-Type': 'application/octet-stream',
+        if (failIfExists) 'If-None-Match': '*',
       },
       body: data,
     );
 
+    if (failIfExists && response.statusCode == 412) {
+      throw Exception('FILE_EXISTS');
+    }
     if (response.statusCode != 201 &&
         response.statusCode != 204 &&
         response.statusCode != 200) {
