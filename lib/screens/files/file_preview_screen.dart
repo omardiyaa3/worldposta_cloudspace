@@ -48,13 +48,8 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Future<void> _loadFile() async {
-    // Office docs: on Windows open in Edge app mode, others use in-app webview
+    // Office docs: use in-app webview on all platforms (including Windows with WebView2)
     if (_isOfficeDoc || _isSpreadsheet || _isPresentation) {
-      if (Platform.isWindows) {
-        await _launchWindowsEditor();
-        if (mounted) Navigator.of(context).pop();
-        return;
-      }
       if (mounted) setState(() => _isLoading = false);
       return;
     }
@@ -164,44 +159,6 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     final editorUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
 
     try {
-      // Start a temporary local HTTP server that proxies the initial request with auth
-      // Browser connects to localhost → server adds auth header → proxies to Nextcloud → returns with cookies
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      final port = server.port;
-      debugPrint('Auth proxy on port $port');
-
-      server.listen((request) async {
-        try {
-          // Proxy the request to Nextcloud with auth
-          final ncUrl = '${auth.serverUrl}${request.uri.path}${request.uri.hasQuery ? '?${request.uri.query}' : ''}';
-          final ncReq = await HttpClient().openUrl(request.method, Uri.parse(ncUrl));
-          ncReq.headers.set('Authorization', auth.basicAuth);
-          ncReq.headers.set('OCS-APIRequest', 'true');
-          request.headers.forEach((name, values) {
-            if (name != 'host' && name != 'authorization') {
-              for (final v in values) { ncReq.headers.add(name, v); }
-            }
-          });
-          final ncResp = await ncReq.close();
-          // Forward response and cookies
-          request.response.statusCode = ncResp.statusCode;
-          ncResp.headers.forEach((name, values) {
-            for (final v in values) { request.response.headers.add(name, v); }
-          });
-          await ncResp.pipe(request.response);
-        } catch (e) {
-          request.response.statusCode = 302;
-          request.response.headers.set('Location', editorUrl);
-          await request.response.close();
-        }
-      });
-
-      // Auto-close server after 30 seconds
-      Future.delayed(const Duration(seconds: 30), () => server.close());
-
-      // Open browser pointing to our local proxy which will auth and redirect
-      final proxyUrl = 'http://localhost:$port/index.php/apps/files/files/$fileId?dir=/&openfile=true';
-
       final browsers = [
         'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
         'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -215,11 +172,11 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
 
       if (browserPath != null) {
         await Process.start(browserPath, [
-          '--app=$proxyUrl',
+          '--app=$editorUrl',
           '--window-size=1200,800',
         ]);
       } else {
-        await launchUrl(Uri.parse(proxyUrl), mode: LaunchMode.externalApplication);
+        await launchUrl(Uri.parse(editorUrl), mode: LaunchMode.externalApplication);
       }
 
       await Future.delayed(const Duration(seconds: 6));
@@ -1103,7 +1060,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       return _buildInAppWebViewer(auth, sessionUrl, targetUrl, hideJs);
     }
 
-    // macOS / iOS — use webview_flutter
+    // macOS / iOS / Windows — use webview_flutter (WebView2 on Windows)
     final authedSessionUrl = Uri.parse(sessionUrl).replace(
       userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
     );
@@ -1115,7 +1072,9 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
 
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+      ..setUserAgent(Platform.isWindows
+          ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
       ..setNavigationDelegate(NavigationDelegate(
         onPageFinished: (url) {
           if (!_sessionEstablished) {
@@ -1139,7 +1098,14 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
         },
       ));
 
-    controller.loadRequest(authedSessionUrl);
+    // Windows WebView2 strips userInfo from URLs — use headers instead
+    if (Platform.isWindows) {
+      controller.loadRequest(Uri.parse(sessionUrl), headers: {
+        'Authorization': auth.basicAuth,
+      });
+    } else {
+      controller.loadRequest(authedSessionUrl);
+    }
 
     return ValueListenableBuilder<bool>(
       valueListenable: _showWebView,
