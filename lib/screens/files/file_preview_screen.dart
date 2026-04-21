@@ -48,8 +48,13 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   }
 
   Future<void> _loadFile() async {
-    // Office docs: use in-app webview on all platforms (including Windows with WebView2)
+    // Office docs: Windows uses external browser, others use in-app webview
     if (_isOfficeDoc || _isSpreadsheet || _isPresentation) {
+      if (Platform.isWindows) {
+        await _launchWindowsEditor();
+        if (mounted) Navigator.of(context).pop();
+        return;
+      }
       if (mounted) setState(() => _isLoading = false);
       return;
     }
@@ -157,6 +162,8 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     if (fileId == null || fileId.isEmpty) return;
 
     final editorUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
+    // Use a separate browser profile per account so multi-account sessions don't conflict
+    final profileDir = '${(await getTemporaryDirectory()).path}${Platform.pathSeparator}cloudspace_${auth.userId ?? 'default'}';
 
     try {
       final browsers = [
@@ -173,6 +180,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
       if (browserPath != null) {
         await Process.start(browserPath, [
           '--app=$editorUrl',
+          '--user-data-dir=$profileDir',
           '--window-size=1200,800',
         ]);
       } else {
@@ -1072,9 +1080,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
 
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent(Platform.isWindows
-          ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-          : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+      ..setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
       ..setNavigationDelegate(NavigationDelegate(
         onPageFinished: (url) {
           if (!_sessionEstablished) {
@@ -1098,14 +1104,7 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
         },
       ));
 
-    // Windows WebView2 strips userInfo from URLs — use headers instead
-    if (Platform.isWindows) {
-      controller.loadRequest(Uri.parse(sessionUrl), headers: {
-        'Authorization': auth.basicAuth,
-      });
-    } else {
-      controller.loadRequest(authedSessionUrl);
-    }
+    controller.loadRequest(authedSessionUrl);
 
     return ValueListenableBuilder<bool>(
       valueListenable: _showWebView,
