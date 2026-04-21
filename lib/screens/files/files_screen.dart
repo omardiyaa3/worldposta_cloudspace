@@ -466,6 +466,14 @@ class _FilesScreenState extends State<FilesScreen> {
     );
     if (result == null || result['name']!.trim().isEmpty) return;
     final fileName = '${result['name']!.trim()}.${result['ext']}';
+    if (_files.any((f) => f.name.toLowerCase() == fileName.toLowerCase())) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('"$fileName" already exists'), backgroundColor: AppColors.filePdf),
+        );
+      }
+      return;
+    }
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
