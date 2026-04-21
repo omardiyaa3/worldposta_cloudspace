@@ -161,41 +161,46 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     final fileId = widget.file.fileId;
     if (fileId == null || fileId.isEmpty) return;
 
+    final editorUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
+
     try {
-      // Get a one-time direct link that authenticates without login
-      final directUrl = Uri.parse(
-        '${auth.serverUrl}/ocs/v2.php/apps/dav/api/v1/direct',
-      );
-      final directResp = await WebDavService.sharedHttpClient.post(directUrl, headers: {
-        'Authorization': auth.basicAuth,
-        'OCS-APIRequest': 'true',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      }, body: 'fileId=$fileId');
+      // Start a temporary local HTTP server that proxies the initial request with auth
+      // Browser connects to localhost → server adds auth header → proxies to Nextcloud → returns with cookies
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final port = server.port;
+      debugPrint('Auth proxy on port $port');
 
-      String? directLinkUrl;
-      final body = directResp.body;
-      // Parse URL from XML response
-      final urlMatch = RegExp(r'<url>(.*?)</url>').firstMatch(body);
-      if (urlMatch != null) {
-        directLinkUrl = urlMatch.group(1);
-      }
+      server.listen((request) async {
+        try {
+          // Proxy the request to Nextcloud with auth
+          final ncUrl = '${auth.serverUrl}${request.uri.path}${request.uri.hasQuery ? '?${request.uri.query}' : ''}';
+          final ncReq = await HttpClient().openUrl(request.method, Uri.parse(ncUrl));
+          ncReq.headers.set('Authorization', auth.basicAuth);
+          ncReq.headers.set('OCS-APIRequest', 'true');
+          request.headers.forEach((name, values) {
+            if (name != 'host' && name != 'authorization') {
+              for (final v in values) { ncReq.headers.add(name, v); }
+            }
+          });
+          final ncResp = await ncReq.close();
+          // Forward response and cookies
+          request.response.statusCode = ncResp.statusCode;
+          ncResp.headers.forEach((name, values) {
+            for (final v in values) { request.response.headers.add(name, v); }
+          });
+          await ncResp.pipe(request.response);
+        } catch (e) {
+          request.response.statusCode = 302;
+          request.response.headers.set('Location', editorUrl);
+          await request.response.close();
+        }
+      });
 
-      // The direct link downloads the file — we need to open it in the editor instead
-      // Use the direct link to authenticate the session, then redirect to editor
-      final editorUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
+      // Auto-close server after 30 seconds
+      Future.delayed(const Duration(seconds: 30), () => server.close());
 
-      // Write temp HTML: open direct link in hidden iframe (sets cookie), then redirect to editor
-      final tempDir = await getTemporaryDirectory();
-      final htmlFile = File('${tempDir.path}${Platform.pathSeparator}cloudspace_edit.html');
-      await htmlFile.writeAsString('''<!DOCTYPE html>
-<html><head><title>Opening file...</title>
-<style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}
-.loader{text-align:center;color:#666}
-.spinner{width:40px;height:40px;border:4px solid #ddd;border-top:4px solid #2d8a3e;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
-@keyframes spin{to{transform:rotate(360deg)}}</style></head>
-<body><div class="loader"><div class="spinner"></div><p>Opening file...</p></div>
-${directLinkUrl != null ? '<iframe src="$directLinkUrl" style="display:none" onload="setTimeout(function(){window.location.href=\'$editorUrl\'},1000)"></iframe>' : '<script>window.location.href="$editorUrl";</script>'}
-</body></html>''');
+      // Open browser pointing to our local proxy which will auth and redirect
+      final proxyUrl = 'http://localhost:$port/index.php/apps/files/files/$fileId?dir=/&openfile=true';
 
       final browsers = [
         'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -208,19 +213,17 @@ ${directLinkUrl != null ? '<iframe src="$directLinkUrl" style="display:none" onl
         if (await File(p).exists()) { browserPath = p; break; }
       }
 
-      final fileUrl = Uri.file(htmlFile.path).toString();
       if (browserPath != null) {
         await Process.start(browserPath, [
-          '--app=$fileUrl',
+          '--app=$proxyUrl',
           '--window-size=1200,800',
         ]);
       } else {
-        await launchUrl(Uri.parse(fileUrl), mode: LaunchMode.externalApplication);
+        await launchUrl(Uri.parse(proxyUrl), mode: LaunchMode.externalApplication);
       }
 
       await Future.delayed(const Duration(seconds: 6));
     } catch (e) {
-      final editorUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
       await launchUrl(Uri.parse(editorUrl), mode: LaunchMode.externalApplication);
       await Future.delayed(const Duration(seconds: 6));
     }
