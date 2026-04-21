@@ -161,32 +161,42 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     final fileId = widget.file.fileId;
     if (fileId == null || fileId.isEmpty) return;
 
-    // Create a temporary HTML page that authenticates first, then redirects to the editor
-    final targetUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
-    final loginUrl = '${auth.serverUrl}/remote.php/dav/files/${auth.userId}/';
-    final credentials = base64Encode(utf8.encode('${auth.username}:${auth.appPassword}'));
+    try {
+      // Get a one-time direct link that authenticates without login
+      final directUrl = Uri.parse(
+        '${auth.serverUrl}/ocs/v2.php/apps/dav/api/v1/direct',
+      );
+      final directResp = await WebDavService.sharedHttpClient.post(directUrl, headers: {
+        'Authorization': auth.basicAuth,
+        'OCS-APIRequest': 'true',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      }, body: 'fileId=$fileId');
 
-    // Write a temp HTML file that does XHR auth then redirects
-    final tempDir = await getTemporaryDirectory();
-    final htmlFile = File('${tempDir.path}\\cloudspace_auth.html');
-    await htmlFile.writeAsString('''<!DOCTYPE html>
+      String? directLinkUrl;
+      final body = directResp.body;
+      // Parse URL from XML response
+      final urlMatch = RegExp(r'<url>(.*?)</url>').firstMatch(body);
+      if (urlMatch != null) {
+        directLinkUrl = urlMatch.group(1);
+      }
+
+      // The direct link downloads the file — we need to open it in the editor instead
+      // Use the direct link to authenticate the session, then redirect to editor
+      final editorUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
+
+      // Write temp HTML: open direct link in hidden iframe (sets cookie), then redirect to editor
+      final tempDir = await getTemporaryDirectory();
+      final htmlFile = File('${tempDir.path}${Platform.pathSeparator}cloudspace_edit.html');
+      await htmlFile.writeAsString('''<!DOCTYPE html>
 <html><head><title>Opening file...</title>
 <style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}
 .loader{text-align:center;color:#666}
 .spinner{width:40px;height:40px;border:4px solid #ddd;border-top:4px solid #2d8a3e;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
 @keyframes spin{to{transform:rotate(360deg)}}</style></head>
 <body><div class="loader"><div class="spinner"></div><p>Opening file...</p></div>
-<script>
-var xhr = new XMLHttpRequest();
-xhr.open("GET", "$loginUrl", true);
-xhr.setRequestHeader("Authorization", "Basic $credentials");
-xhr.withCredentials = true;
-xhr.onload = function() { window.location.href = "$targetUrl"; };
-xhr.onerror = function() { window.location.href = "$targetUrl"; };
-xhr.send();
-</script></body></html>''');
+${directLinkUrl != null ? '<iframe src="$directLinkUrl" style="display:none" onload="setTimeout(function(){window.location.href=\'$editorUrl\'},1000)"></iframe>' : '<script>window.location.href="$editorUrl";</script>'}
+</body></html>''');
 
-    try {
       final browsers = [
         'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
         'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -210,8 +220,8 @@ xhr.send();
 
       await Future.delayed(const Duration(seconds: 6));
     } catch (e) {
-      // Fallback: open directly without auth
-      await launchUrl(Uri.parse(targetUrl), mode: LaunchMode.externalApplication);
+      final editorUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
+      await launchUrl(Uri.parse(editorUrl), mode: LaunchMode.externalApplication);
       await Future.delayed(const Duration(seconds: 6));
     }
   }
