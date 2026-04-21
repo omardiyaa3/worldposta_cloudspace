@@ -35,6 +35,34 @@ class _HomeShellState extends State<HomeShell> {
   String _currentFilesPath = '/';
   Future<void> Function()? _currentRefresh;
 
+  /// Check if file exists in folder, ask user to replace or cancel. Returns true if should proceed.
+  Future<bool> _checkAndConfirmOverwrite(String fileName, String folderPath) async {
+    try {
+      final cache = context.read<DataCacheService>();
+      final files = await cache.getFolder(folderPath);
+      if (files.any((f) => f.name.toLowerCase() == fileName.toLowerCase())) {
+        if (!mounted) return false;
+        final replace = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('File already exists'),
+            content: Text('"$fileName" already exists. Do you want to replace it?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.filePdf),
+                child: const Text('Replace'),
+              ),
+            ],
+          ),
+        );
+        return replace == true;
+      }
+    } catch (_) {}
+    return true; // File doesn't exist, proceed
+  }
+
   void _showNewMenu() {
     showModalBottomSheet(
       context: context,
@@ -107,6 +135,7 @@ class _HomeShellState extends State<HomeShell> {
         }
 
         final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+        if (!await _checkAndConfirmOverwrite(fileName, basePath)) continue;
         await webdav.uploadFile('${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName', bytes);
       }
 
@@ -226,6 +255,7 @@ class _HomeShellState extends State<HomeShell> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
       final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+      if (!await _checkAndConfirmOverwrite(fileName, basePath)) return;
       final remotePath = '${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName';
       await webdav.uploadFile(remotePath, Uint8List(0));
       if (mounted) {

@@ -325,6 +325,26 @@ class _FilesScreenState extends State<FilesScreen> {
 
         final remotePath =
             '$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$fileName';
+        // Check for duplicate
+        if (_files.any((f) => f.name.toLowerCase() == fileName.toLowerCase())) {
+          if (!mounted) continue;
+          final replace = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('File already exists'),
+              content: Text('"$fileName" already exists. Replace it?'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Skip')),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.filePdf),
+                  child: const Text('Replace'),
+                ),
+              ],
+            ),
+          );
+          if (replace != true) continue;
+        }
         await webdav.uploadFile(remotePath, bytes);
 
         if (mounted) {
@@ -467,12 +487,23 @@ class _FilesScreenState extends State<FilesScreen> {
     if (result == null || result['name']!.trim().isEmpty) return;
     final fileName = '${result['name']!.trim()}.${result['ext']}';
     if (_files.any((f) => f.name.toLowerCase() == fileName.toLowerCase())) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('"$fileName" already exists'), backgroundColor: AppColors.filePdf),
-        );
-      }
-      return;
+      if (!mounted) return;
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('File already exists'),
+          content: Text('"$fileName" already exists. Do you want to replace it?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.filePdf),
+              child: const Text('Replace'),
+            ),
+          ],
+        ),
+      );
+      if (replace != true) return;
     }
     try {
       final auth = context.read<AuthService>();
