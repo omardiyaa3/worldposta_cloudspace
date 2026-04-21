@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
@@ -160,10 +161,30 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     final fileId = widget.file.fileId;
     if (fileId == null || fileId.isEmpty) return;
 
+    // Create a temporary HTML page that authenticates first, then redirects to the editor
     final targetUrl = '${auth.serverUrl}/index.php/apps/files/files/$fileId?dir=/&openfile=true';
-    final authedUri = Uri.parse(targetUrl).replace(
-      userInfo: '${Uri.encodeComponent(auth.username!)}:${Uri.encodeComponent(auth.appPassword!)}',
-    );
+    final loginUrl = '${auth.serverUrl}/remote.php/dav/files/${auth.userId}/';
+    final credentials = base64Encode(utf8.encode('${auth.username}:${auth.appPassword}'));
+
+    // Write a temp HTML file that does XHR auth then redirects
+    final tempDir = await getTemporaryDirectory();
+    final htmlFile = File('${tempDir.path}\\cloudspace_auth.html');
+    await htmlFile.writeAsString('''<!DOCTYPE html>
+<html><head><title>Opening file...</title>
+<style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}
+.loader{text-align:center;color:#666}
+.spinner{width:40px;height:40px;border:4px solid #ddd;border-top:4px solid #2d8a3e;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}</style></head>
+<body><div class="loader"><div class="spinner"></div><p>Opening file...</p></div>
+<script>
+var xhr = new XMLHttpRequest();
+xhr.open("GET", "$loginUrl", true);
+xhr.setRequestHeader("Authorization", "Basic $credentials");
+xhr.withCredentials = true;
+xhr.onload = function() { window.location.href = "$targetUrl"; };
+xhr.onerror = function() { window.location.href = "$targetUrl"; };
+xhr.send();
+</script></body></html>''');
 
     try {
       final browsers = [
@@ -177,18 +198,20 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
         if (await File(p).exists()) { browserPath = p; break; }
       }
 
+      final fileUrl = Uri.file(htmlFile.path).toString();
       if (browserPath != null) {
         await Process.start(browserPath, [
-          '--app=${authedUri.toString()}',
+          '--app=$fileUrl',
           '--window-size=1200,800',
         ]);
       } else {
-        await launchUrl(authedUri, mode: LaunchMode.externalApplication);
+        await launchUrl(Uri.parse(fileUrl), mode: LaunchMode.externalApplication);
       }
 
       await Future.delayed(const Duration(seconds: 6));
     } catch (e) {
-      await launchUrl(authedUri, mode: LaunchMode.externalApplication);
+      // Fallback: open directly without auth
+      await launchUrl(Uri.parse(targetUrl), mode: LaunchMode.externalApplication);
       await Future.delayed(const Duration(seconds: 6));
     }
   }
