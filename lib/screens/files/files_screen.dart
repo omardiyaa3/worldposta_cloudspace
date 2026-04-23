@@ -1456,7 +1456,7 @@ class _FilesScreenState extends State<FilesScreen> {
                                       }
                                       if (newPerms == null || newPerms == (perms & 15)) return;
 
-                                      // Update permissions in-place via PUT (don't delete+recreate)
+                                      // Try PUT first (works for user shares type 0)
                                       try {
                                         final putUrl = Uri.parse(
                                           '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares/$shareId?format=json',
@@ -1465,14 +1465,46 @@ class _FilesScreenState extends State<FilesScreen> {
                                           ...headers,
                                           'Content-Type': 'application/x-www-form-urlencoded',
                                         }, body: 'permissions=$newPerms');
-                                        debugPrint('Update share response: ${resp.statusCode} ${resp.body}');
 
-                                        if (resp.statusCode == 200 && context.mounted) {
+                                        bool putWorked = false;
+                                        Map<String, dynamic>? updatedShare;
+                                        if (resp.statusCode == 200) {
                                           final data = jsonDecode(resp.body);
+                                          final meta = data['ocs']?['meta'];
                                           final updatedRaw = data['ocs']?['data'];
-                                          Map<String, dynamic>? updatedShare;
                                           if (updatedRaw is Map<String, dynamic>) updatedShare = updatedRaw;
                                           else if (updatedRaw is List && updatedRaw.isNotEmpty) updatedShare = updatedRaw.first as Map<String, dynamic>?;
+                                          // Verify permissions actually changed
+                                          if (meta?['statuscode'] == 100 && updatedShare != null && updatedShare['permissions'] == newPerms) {
+                                            putWorked = true;
+                                          }
+                                        }
+
+                                        if (!putWorked) {
+                                          // PUT didn't work (email shares) — fall back to delete+recreate
+                                          debugPrint('PUT did not update perms, falling back to delete+recreate');
+                                          await WebDavService.sharedHttpClient.delete(putUrl, headers: headers);
+                                          final postUrl = Uri.parse(
+                                            '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?format=json',
+                                          );
+                                          final postResp = await WebDavService.sharedHttpClient.post(postUrl, headers: {
+                                            ...headers,
+                                            'Content-Type': 'application/x-www-form-urlencoded',
+                                          }, body: {
+                                            'path': file.path,
+                                            'shareType': '$type',
+                                            'shareWith': shareWith,
+                                            'permissions': '$newPerms',
+                                          });
+                                          if (postResp.statusCode == 200) {
+                                            final postData = jsonDecode(postResp.body);
+                                            final raw = postData['ocs']?['data'];
+                                            if (raw is Map<String, dynamic>) updatedShare = raw;
+                                            else if (raw is List && raw.isNotEmpty) updatedShare = raw.first as Map<String, dynamic>?;
+                                          }
+                                        }
+
+                                        if (context.mounted) {
                                           if (updatedShare != null) {
                                             setSheetState(() {
                                               existingShares = List.from(existingShares)..[i] = updatedShare!;
@@ -1484,7 +1516,7 @@ class _FilesScreenState extends State<FilesScreen> {
                                           }
                                         }
                                       } catch (e) {
-                                        setSheetState(() { shareError = 'Failed: $e'; shareSuccess = ''; });
+                                        setSheetState(() { shareError = 'Failed: ${_friendlyError(e)}'; shareSuccess = ''; });
                                       }
                                     },
                                     itemBuilder: (_) => [
