@@ -257,13 +257,15 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _browsingAfterSearch = false;
 
   void _navigateToFolder(NcFile folder) {
-    if (widget.mode != FileViewMode.files) return;
+    // Allow folder navigation in files, shared, starred modes (not trash)
+    if (widget.mode == FileViewMode.trash) return;
     setState(() {
       _currentPath = folder.path;
       _files = [];
       _filteredFiles = [];
-      // If we're in search results, switch to normal folder browsing
       if (widget.searchQuery.isNotEmpty) _browsingAfterSearch = true;
+      // Switch to folder browsing mode for non-files views
+      if (widget.mode != FileViewMode.files) _browsingAfterSearch = true;
     });
     widget.onPathChanged?.call(folder.path);
     _loadFiles();
@@ -1104,7 +1106,21 @@ class _FilesScreenState extends State<FilesScreen> {
                       style: ElevatedButton.styleFrom(backgroundColor: AppColors.green700),
                       onPressed: shareError == '...' ? null : () async {
                         final shareWith = shareWithController.text.trim();
-                        if (shareWith.isEmpty) return;
+                        // TC-005: empty field validation
+                        if (shareWith.isEmpty) {
+                          setSheetState(() => shareError = 'Please enter a username or email');
+                          return;
+                        }
+                        // TC-004: malformed email validation
+                        if (shareWith.contains('@') && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(shareWith)) {
+                          setSheetState(() => shareError = 'Please enter a valid email address');
+                          return;
+                        }
+                        // TC-008: block self-sharing
+                        if (shareWith == auth.username || shareWith == auth.userId || shareWith == auth.displayName) {
+                          setSheetState(() => shareError = 'You cannot share with yourself');
+                          return;
+                        }
                         // Check if already shared with this person
                         if (existingShares.any((s) => s['share_with'] == shareWith || s['share_with_displayname'] == shareWith)) {
                           setSheetState(() => shareError = 'Already shared with $shareWith');
@@ -1386,7 +1402,28 @@ class _FilesScreenState extends State<FilesScreen> {
                                       );
                                     },
                                   ),
-                                // Permission menu — delete and recreate to change permissions
+                                // Delete/revoke public link
+                                if (isPublicLink)
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 16, color: AppColors.filePdf),
+                                    tooltip: 'Revoke link',
+                                    onPressed: () async {
+                                      try {
+                                        final delUrl = Uri.parse(
+                                          '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares/$shareId?format=json',
+                                        );
+                                        await WebDavService.sharedHttpClient.delete(delUrl, headers: headers);
+                                        setSheetState(() {
+                                          existingShares = List.from(existingShares)..removeAt(i);
+                                          shareSuccess = 'Public link revoked';
+                                          shareError = '';
+                                        });
+                                      } catch (e) {
+                                        setSheetState(() { shareError = 'Failed to revoke: ${_friendlyError(e)}'; shareSuccess = ''; });
+                                      }
+                                    },
+                                  ),
+                                // Permission menu for user shares
                                 if (!isPublicLink)
                                   PopupMenuButton<String>(
                                     icon: const Icon(Icons.settings, size: 16, color: AppColors.muted),
@@ -1419,38 +1456,26 @@ class _FilesScreenState extends State<FilesScreen> {
                                       }
                                       if (newPerms == null || newPerms == (perms & 15)) return;
 
-                                      // Delete old share, create new one with updated perms
+                                      // Update permissions in-place via PUT (don't delete+recreate)
                                       try {
-                                        // Delete
-                                        final delUrl = Uri.parse(
+                                        final putUrl = Uri.parse(
                                           '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares/$shareId?format=json',
                                         );
-                                        await WebDavService.sharedHttpClient.delete(delUrl, headers: headers);
-
-                                        // Recreate with new permissions
-                                        final postUrl = Uri.parse(
-                                          '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?format=json',
-                                        );
-                                        final resp = await WebDavService.sharedHttpClient.post(postUrl, headers: {
+                                        final resp = await WebDavService.sharedHttpClient.put(putUrl, headers: {
                                           ...headers,
                                           'Content-Type': 'application/x-www-form-urlencoded',
-                                        }, body: {
-                                          'path': file.path,
-                                          'shareType': '$type',
-                                          'shareWith': shareWith,
-                                          'permissions': '$newPerms',
-                                        });
-                                        debugPrint('Recreate share response: ${resp.statusCode} ${resp.body}');
+                                        }, body: 'permissions=$newPerms');
+                                        debugPrint('Update share response: ${resp.statusCode} ${resp.body}');
 
                                         if (resp.statusCode == 200 && context.mounted) {
                                           final data = jsonDecode(resp.body);
-                                          final recreateRaw = data['ocs']?['data'];
-                                          Map<String, dynamic>? newShare;
-                                          if (recreateRaw is Map<String, dynamic>) newShare = recreateRaw;
-                                          else if (recreateRaw is List && recreateRaw.isNotEmpty) newShare = recreateRaw.first as Map<String, dynamic>?;
-                                          if (newShare != null) {
+                                          final updatedRaw = data['ocs']?['data'];
+                                          Map<String, dynamic>? updatedShare;
+                                          if (updatedRaw is Map<String, dynamic>) updatedShare = updatedRaw;
+                                          else if (updatedRaw is List && updatedRaw.isNotEmpty) updatedShare = updatedRaw.first as Map<String, dynamic>?;
+                                          if (updatedShare != null) {
                                             setSheetState(() {
-                                              existingShares = List.from(existingShares)..[i] = newShare!;
+                                              existingShares = List.from(existingShares)..[i] = updatedShare!;
                                               shareSuccess = 'Permissions updated';
                                               shareError = '';
                                             });
@@ -1570,17 +1595,18 @@ class _FilesScreenState extends State<FilesScreen> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
               ElevatedButton(
-                onPressed: () {
+                onPressed: (!read && !update && !create && !delete && !share) ? null : () {
                   int perms = 0;
                   if (read) perms |= 1;
                   if (update) perms |= 2;
                   if (create) perms |= 4;
                   if (delete) perms |= 8;
                   if (share) perms |= 16;
-                  if (perms == 0) perms = 1; // At least read
                   Navigator.pop(ctx, perms);
                 },
-                child: const Text('Apply'),
+                child: Text((!read && !update && !create && !delete && !share)
+                    ? 'Select at least one'
+                    : 'Apply'),
               ),
             ],
           ),
