@@ -110,8 +110,8 @@ jobs:
           name: CloudSpace-Windows-Setup
           path: CloudSpace-Setup.exe
 
-      - name: Upload unsigned exe (for manual signing)
+      - name: Upload raw build folder (for local signing + installer)
         uses: actions/upload-artifact@v4
         with:
-          name: CloudSpace-Unsigned-Exe
-          path: build/windows/x64/runner/Release/CloudSpace.exe
+          name: CloudSpace-Build
+          path: build/windows/x64/runner/Release/
