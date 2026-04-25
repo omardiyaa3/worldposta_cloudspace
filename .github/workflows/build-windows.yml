@@ -86,23 +86,6 @@ jobs:
           Filename: "{app}\CloudSpace.exe"; Description: "Launch CloudSpace"; Flags: nowait postinstall skipifsilent
 
           [Code]
-          procedure CurStepChanged(CurStep: TSetupStep);
-          var
-            OldPath, NewPath: String;
-          begin
-            if CurStep = ssPostInstall then
-            begin
-              OldPath := ExpandConstant('{app}\unins000.exe');
-              NewPath := ExpandConstant('{app}\CloudSpace Uninstaller.exe');
-              if FileExists(OldPath) then
-                RenameFile(OldPath, NewPath);
-              OldPath := ExpandConstant('{app}\unins000.dat');
-              NewPath := ExpandConstant('{app}\CloudSpace Uninstaller.dat');
-              if FileExists(OldPath) then
-                RenameFile(OldPath, NewPath);
-            end;
-          end;
-
           function VCRedistInstalled: Boolean;
           begin
             Result := FileExists(ExpandConstant('{sys}\msvcp140.dll'));
