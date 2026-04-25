@@ -67,6 +67,7 @@ jobs:
           SolidCompression=yes
           SetupIconFile=windows\runner\resources\app_icon.ico
           UninstallDisplayIcon={app}\CloudSpace.exe
+          UninstallDisplayName=CloudSpace
           CloseApplications=force
           CloseApplicationsFilter=CloudSpace.exe
           RestartApplications=no
@@ -85,6 +86,23 @@ jobs:
           Filename: "{app}\CloudSpace.exe"; Description: "Launch CloudSpace"; Flags: nowait postinstall skipifsilent
 
           [Code]
+          procedure CurStepChanged(CurStep: TSetupStep);
+          var
+            OldPath, NewPath: String;
+          begin
+            if CurStep = ssPostInstall then
+            begin
+              OldPath := ExpandConstant('{app}\unins000.exe');
+              NewPath := ExpandConstant('{app}\CloudSpace Uninstaller.exe');
+              if FileExists(OldPath) then
+                RenameFile(OldPath, NewPath);
+              OldPath := ExpandConstant('{app}\unins000.dat');
+              NewPath := ExpandConstant('{app}\CloudSpace Uninstaller.dat');
+              if FileExists(OldPath) then
+                RenameFile(OldPath, NewPath);
+            end;
+          end;
+
           function VCRedistInstalled: Boolean;
           begin
             Result := FileExists(ExpandConstant('{sys}\msvcp140.dll'));
@@ -108,3 +126,9 @@ jobs:
         with:
           name: CloudSpace-Windows-Setup
           path: CloudSpace-Setup.exe
+
+      - name: Upload unsigned exe (for manual signing)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CloudSpace-Unsigned-Exe
+          path: build/windows/x64/runner/Release/CloudSpace.exe
