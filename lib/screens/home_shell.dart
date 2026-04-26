@@ -175,10 +175,12 @@ class _HomeShellState extends State<HomeShell> {
 
   Future<void> _createFolder() async {
     final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
-    // Pre-load existing items for duplicate check
+    // Load existing items directly from server for duplicate check
     List<NcFile> existingItems = [];
     try {
-      existingItems = await context.read<DataCacheService>().getFolder(basePath);
+      final auth = context.read<AuthService>();
+      final webdav = WebDavService(auth);
+      existingItems = await webdav.listFiles(basePath);
     } catch (_) {}
 
     if (!mounted) return;
