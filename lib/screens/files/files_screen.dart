@@ -257,8 +257,7 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _browsingAfterSearch = false;
 
   void _navigateToFolder(NcFile folder) {
-    // Allow folder navigation in files, shared, starred modes (not trash)
-    if (widget.mode == FileViewMode.trash) return;
+    if (widget.mode == FileViewMode.trash) return; // Trash paths need special handling
     setState(() {
       _currentPath = folder.path;
       _files = [];
@@ -407,8 +406,16 @@ class _FilesScreenState extends State<FilesScreen> {
         );
       },
     );
-    if (name == null || name.isEmpty) return;
-    if (_files.any((f) => f.name == name)) {
+    if (name == null || name.trim().isEmpty) {
+      if (name != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a folder name'), backgroundColor: AppColors.filePdf),
+        );
+      }
+      return;
+    }
+    final name_ = name.trim();
+    if (_files.any((f) => f.name.toLowerCase() == name_.toLowerCase())) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('"$name" already exists'), backgroundColor: AppColors.filePdf),
@@ -419,7 +426,7 @@ class _FilesScreenState extends State<FilesScreen> {
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
-      await webdav.createDirectory('$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$name');
+      await webdav.createDirectory('$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$name_');
       // Clear just this folder's cache, then reload once
       if (mounted) {
         context.read<DataCacheService>().clearFolderCache(_currentPath);
@@ -427,7 +434,7 @@ class _FilesScreenState extends State<FilesScreen> {
       await _loadFiles();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Folder "$name" created'), backgroundColor: AppColors.green700),
+          SnackBar(content: Text('Folder "$name_" created'), backgroundColor: AppColors.green700),
         );
       }
     } catch (e) {

@@ -34,6 +34,10 @@ class _HomeShellState extends State<HomeShell> {
   String _searchQuery = '';
   String _currentFilesPath = '/';
   Future<void> Function()? _currentRefresh;
+  bool _isUploading = false;
+  String _uploadingFileName = '';
+  int _uploadedCount = 0;
+  int _uploadTotalCount = 0;
 
   /// Check if file exists in folder, ask user to replace or cancel. Returns true if should proceed.
   Future<bool> _checkAndConfirmOverwrite(String fileName, String folderPath) async {
@@ -121,9 +125,18 @@ class _HomeShellState extends State<HomeShell> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
 
-      for (final file in result.files) {
+      setState(() {
+        _isUploading = true;
+        _uploadTotalCount = result.files.length;
+        _uploadedCount = 0;
+      });
+
+      for (int i = 0; i < result.files.length; i++) {
+        final file = result.files[i];
         final fileName = file.name;
         final filePath = file.path;
+
+        setState(() { _uploadingFileName = fileName; _uploadedCount = i; });
 
         Uint8List bytes;
         if (file.bytes != null) {
@@ -137,20 +150,22 @@ class _HomeShellState extends State<HomeShell> {
         final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
         if (!await _checkAndConfirmOverwrite(fileName, basePath)) continue;
         await webdav.uploadFile('${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName', bytes);
+        setState(() { _uploadedCount = i + 1; });
       }
 
       if (mounted) {
+        setState(() => _isUploading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Uploaded ${result.files.length} file${result.files.length > 1 ? 's' : ''}'),
             backgroundColor: AppColors.green700,
           ),
         );
-        // Refresh files view if we're on it
         setState(() => _currentRoute = 'files');
       }
     } catch (e) {
       if (mounted) {
+        setState(() => _isUploading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.filePdf),
         );
@@ -178,12 +193,23 @@ class _HomeShellState extends State<HomeShell> {
         );
       },
     );
-    if (name == null || name.isEmpty) return;
+    if (name == null || name.trim().isEmpty) {
+      if (name != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a folder name'), backgroundColor: AppColors.filePdf),
+        );
+      }
+      return;
+    }
+    final trimmedName = name.trim();
+    // Always create at root when not on files tab
+    final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+    // Check for duplicate
+    if (!await _checkAndConfirmOverwrite(trimmedName, basePath)) return;
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
-      final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
-      await webdav.createDirectory('${basePath.endsWith('/') ? basePath : '$basePath/'}$name');
+      await webdav.createDirectory('${basePath.endsWith('/') ? basePath : '$basePath/'}$trimmedName');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Created folder "$name"'), backgroundColor: AppColors.green700),
@@ -485,6 +511,26 @@ class _HomeShellState extends State<HomeShell> {
                     );
                   },
                 ),
+                // Upload progress banner
+                if (_isUploading)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    color: AppColors.greenActiveBg,
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.green700)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Uploading $_uploadingFileName ($_uploadedCount/$_uploadTotalCount)',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.heading),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 Expanded(child: _buildContent()),
               ],
             ),

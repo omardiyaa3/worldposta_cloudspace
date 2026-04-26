@@ -927,27 +927,34 @@ class WebDavService {
 
   /// Search files by name
   Future<List<NcFile>> search(String query) async {
-    final url = _buildUri('/');
-    final request = http.Request('REPORT', url);
+    // Use WebDAV SEARCH method for recursive name search
+    final serverUrl = _auth.serverUrl!;
+    final searchUrl = Uri.parse('$serverUrl/remote.php/dav/');
+    final request = http.Request('SEARCH', searchUrl);
     request.headers.addAll(_headers);
     request.headers['Content-Type'] = 'application/xml; charset=utf-8';
+    final escaped = query.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
     request.body = '''<?xml version="1.0" encoding="UTF-8"?>
-<oc:filter-files xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
-  <d:prop>$_propBody</d:prop>
-  <oc:filter-rules/>
-</oc:filter-files>''';
+<d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+  <d:basicsearch>
+    <d:select><d:prop>$_propBody</d:prop></d:select>
+    <d:from><d:scope><d:href>$_basePath</d:href><d:depth>infinity</d:depth></d:scope></d:from>
+    <d:where>
+      <d:like><d:prop><d:displayname/></d:prop><d:literal>%$escaped%</d:literal></d:like>
+    </d:where>
+    <d:limit><d:nresults>100</d:nresults></d:limit>
+  </d:basicsearch>
+</d:searchrequest>''';
 
     final streamedResponse = await _client.send(request);
     final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode == 207) {
-      final all = _parsePropfindResponse(response.body, '/');
-      final q = query.toLowerCase();
-      return all.where((f) => f.name.toLowerCase().contains(q)).toList();
+      return _parsePropfindResponse(response.body, '/');
     }
 
     // Fallback: list root and filter client-side
-    debugPrint('Search REPORT failed, falling back to client-side filter');
+    debugPrint('SEARCH failed (${response.statusCode}), falling back to root filter');
     final all = await listFiles('/');
     final q = query.toLowerCase();
     return all.where((f) => f.name.toLowerCase().contains(q)).toList();
