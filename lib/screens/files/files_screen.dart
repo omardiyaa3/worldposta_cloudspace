@@ -391,42 +391,44 @@ class _FilesScreenState extends State<FilesScreen> {
       context: context,
       builder: (ctx) {
         final controller = TextEditingController();
-        return AlertDialog(
-          title: const Text('New Folder'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: 'Folder name'),
-            onSubmitted: (v) => Navigator.pop(ctx, v),
+        String? errorText;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('New Folder'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(hintText: 'Folder name', errorText: errorText),
+              onSubmitted: (v) {
+                if (v.trim().isEmpty) {
+                  setDialogState(() => errorText = 'Please enter a folder name');
+                } else {
+                  Navigator.pop(ctx, v.trim());
+                }
+              },
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              ElevatedButton(onPressed: () {
+                final val = controller.text.trim();
+                if (val.isEmpty) {
+                  setDialogState(() => errorText = 'Please enter a folder name');
+                } else if (_files.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
+                  setDialogState(() => errorText = '"$val" already exists');
+                } else {
+                  Navigator.pop(ctx, val);
+                }
+              }, child: const Text('Create')),
+            ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text('Create')),
-          ],
         );
       },
     );
-    if (name == null || name.trim().isEmpty) {
-      if (name != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter a folder name'), backgroundColor: AppColors.filePdf),
-        );
-      }
-      return;
-    }
-    final name_ = name.trim();
-    if (_files.any((f) => f.name.toLowerCase() == name_.toLowerCase())) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('"$name" already exists'), backgroundColor: AppColors.filePdf),
-        );
-      }
-      return;
-    }
+    if (name == null || name.isEmpty) return;
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
-      await webdav.createDirectory('$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$name_');
+      await webdav.createDirectory('$_currentPath${_currentPath.endsWith('/') ? '' : '/'}$name');
       // Clear just this folder's cache, then reload once
       if (mounted) {
         context.read<DataCacheService>().clearFolderCache(_currentPath);
@@ -434,7 +436,7 @@ class _FilesScreenState extends State<FilesScreen> {
       await _loadFiles();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Folder "$name_" created'), backgroundColor: AppColors.green700),
+          SnackBar(content: Text('Folder "$name" created'), backgroundColor: AppColors.green700),
         );
       }
     } catch (e) {

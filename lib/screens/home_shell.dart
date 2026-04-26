@@ -174,42 +174,49 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _createFolder() async {
+    final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) {
         final controller = TextEditingController();
-        return AlertDialog(
-          title: const Text('New Folder'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: 'Folder name'),
-            onSubmitted: (v) => Navigator.pop(ctx, v),
+        String? errorText;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('New Folder'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(hintText: 'Folder name', errorText: errorText),
+              onSubmitted: (v) {
+                if (v.trim().isEmpty) {
+                  setDialogState(() => errorText = 'Please enter a folder name');
+                } else {
+                  Navigator.pop(ctx, v.trim());
+                }
+              },
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              ElevatedButton(onPressed: () {
+                final val = controller.text.trim();
+                if (val.isEmpty) {
+                  setDialogState(() => errorText = 'Please enter a folder name');
+                } else {
+                  Navigator.pop(ctx, val);
+                }
+              }, child: const Text('Create')),
+            ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text('Create')),
-          ],
         );
       },
     );
-    if (name == null || name.trim().isEmpty) {
-      if (name != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter a folder name'), backgroundColor: AppColors.filePdf),
-        );
-      }
-      return;
-    }
-    final trimmedName = name.trim();
-    // Always create at root when not on files tab
-    final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+    if (name == null || name.isEmpty) return;
     // Check for duplicate
-    if (!await _checkAndConfirmOverwrite(trimmedName, basePath)) return;
+    if (!await _checkAndConfirmOverwrite(name, basePath)) return;
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
-      await webdav.createDirectory('${basePath.endsWith('/') ? basePath : '$basePath/'}$trimmedName');
+      await webdav.createDirectory('${basePath.endsWith('/') ? basePath : '$basePath/'}$name');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Created folder "$name"'), backgroundColor: AppColors.green700),
