@@ -175,6 +175,13 @@ class _HomeShellState extends State<HomeShell> {
 
   Future<void> _createFolder() async {
     final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+    // Pre-load existing items for duplicate check
+    List<NcFile> existingItems = [];
+    try {
+      existingItems = await context.read<DataCacheService>().getFolder(basePath);
+    } catch (_) {}
+
+    if (!mounted) return;
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) {
@@ -188,10 +195,13 @@ class _HomeShellState extends State<HomeShell> {
               autofocus: true,
               decoration: InputDecoration(hintText: 'Folder name', errorText: errorText),
               onSubmitted: (v) {
-                if (v.trim().isEmpty) {
+                final val = v.trim();
+                if (val.isEmpty) {
                   setDialogState(() => errorText = 'Please enter a folder name');
+                } else if (existingItems.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
+                  setDialogState(() => errorText = '"$val" already exists');
                 } else {
-                  Navigator.pop(ctx, v.trim());
+                  Navigator.pop(ctx, val);
                 }
               },
             ),
@@ -201,6 +211,8 @@ class _HomeShellState extends State<HomeShell> {
                 final val = controller.text.trim();
                 if (val.isEmpty) {
                   setDialogState(() => errorText = 'Please enter a folder name');
+                } else if (existingItems.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
+                  setDialogState(() => errorText = '"$val" already exists');
                 } else {
                   Navigator.pop(ctx, val);
                 }
@@ -211,8 +223,6 @@ class _HomeShellState extends State<HomeShell> {
       },
     );
     if (name == null || name.isEmpty) return;
-    // Check for duplicate
-    if (!await _checkAndConfirmOverwrite(name, basePath)) return;
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);

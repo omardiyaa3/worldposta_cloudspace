@@ -938,7 +938,7 @@ class WebDavService {
 <d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
   <d:basicsearch>
     <d:select><d:prop>$_propBody</d:prop></d:select>
-    <d:from><d:scope><d:href>$_basePath</d:href><d:depth>infinity</d:depth></d:scope></d:from>
+    <d:from><d:scope><d:href>/files/${_auth.userId}</d:href><d:depth>infinity</d:depth></d:scope></d:from>
     <d:where>
       <d:like><d:prop><d:displayname/></d:prop><d:literal>%$escaped%</d:literal></d:like>
     </d:where>

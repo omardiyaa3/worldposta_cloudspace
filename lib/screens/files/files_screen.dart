@@ -2738,7 +2738,7 @@ class _FileRow extends StatelessWidget {
               Expanded(
                 flex: 2,
                 child: Text(
-                  file.lastModified != null ? DateFormat('MMM d, y  h:mm a').format(file.lastModified!) : '--',
+                  file.lastModified != null ? DateFormat('MMM d, y  h:mm a').format(file.lastModified!.toLocal()) : '--',
                   style: const TextStyle(fontSize: 13, color: AppColors.body),
                 ),
               ),
