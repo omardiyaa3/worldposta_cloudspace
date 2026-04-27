@@ -379,19 +379,31 @@ class _FilesScreenState extends State<FilesScreen> {
 
       if (mounted) {
         setState(() => _isUploading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Uploaded ${files.length} file${files.length > 1 ? 's' : ''}'),
-            backgroundColor: AppColors.green700,
-          ),
-        );
+        if (_uploadCancelled) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Upload cancelled ($_uploadedCount/${files.length} files uploaded)'), backgroundColor: AppColors.muted),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Uploaded ${files.length} file${files.length > 1 ? 's' : ''}'),
+              backgroundColor: AppColors.green700,
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) setState(() => _isUploading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: ${_friendlyError(e)}'), backgroundColor: AppColors.filePdf),
-        );
+        if (e.toString().contains('cancelled')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Upload cancelled'), backgroundColor: AppColors.muted),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Upload failed: ${_friendlyError(e)}'), backgroundColor: AppColors.filePdf),
+          );
+        }
       }
     }
   }

@@ -176,20 +176,32 @@ class _HomeShellState extends State<HomeShell> {
 
       if (mounted) {
         setState(() => _isUploading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Uploaded ${result.files.length} file${result.files.length > 1 ? 's' : ''}'),
-            backgroundColor: AppColors.green700,
-          ),
-        );
+        if (_uploadCancelled) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Upload cancelled ($_uploadedCount/${result.files.length} files uploaded)'), backgroundColor: AppColors.muted),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Uploaded ${result.files.length} file${result.files.length > 1 ? 's' : ''}'),
+              backgroundColor: AppColors.green700,
+            ),
+          );
+        }
         setState(() => _currentRoute = 'files');
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isUploading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.filePdf),
-        );
+        if (e.toString().contains('cancelled')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Upload cancelled'), backgroundColor: AppColors.muted),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Upload failed: ${e.toString().length > 80 ? e.toString().substring(0, 80) : e}'), backgroundColor: AppColors.filePdf),
+          );
+        }
       }
     }
   }
