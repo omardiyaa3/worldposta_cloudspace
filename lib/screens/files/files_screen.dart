@@ -44,6 +44,7 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _isRefreshing = false;  // Subtle indicator while updating in background
   bool _isGridView = true;
   bool _isUploading = false;
+  bool _uploadCancelled = false;
   String _uploadingFileName = '';
   int _uploadedCount = 0;
   int _uploadTotalCount = 0;
@@ -67,6 +68,7 @@ class _FilesScreenState extends State<FilesScreen> {
     }
     if (s.contains('403')) return 'Access denied.';
     if (s.contains('404')) return 'Not found on server.';
+    if (s.contains('423')) return 'File is locked. Try again in a moment.';
     if (s.contains('500') || s.contains('502') || s.contains('503')) return 'Server error. Try again later.';
     // Truncate long messages
     if (s.length > 80) return '${s.substring(0, 80)}...';
@@ -295,6 +297,7 @@ class _FilesScreenState extends State<FilesScreen> {
     try {
       setState(() {
         _isUploading = true;
+        _uploadCancelled = false;
         _uploadedCount = 0;
         _uploadTotalCount = files.length;
         _uploadedBytes = 0;
@@ -313,6 +316,7 @@ class _FilesScreenState extends State<FilesScreen> {
       final webdav = WebDavService(auth);
 
       for (var i = 0; i < files.length; i++) {
+        if (_uploadCancelled) break;
         final file = files[i];
         final fileName = file.name;
         final filePath = file.path;
@@ -324,11 +328,14 @@ class _FilesScreenState extends State<FilesScreen> {
           });
         }
 
-        Uint8List bytes;
-        if (file.bytes != null) {
-          bytes = file.bytes!;
-        } else if (filePath != null) {
-          bytes = await File(filePath).readAsBytes();
+        dynamic fileData;
+        int fileSize;
+        if (filePath != null) {
+          fileData = filePath;
+          fileSize = file.size;
+        } else if (file.bytes != null) {
+          fileData = file.bytes!;
+          fileSize = file.bytes!.length;
         } else {
           continue;
         }
@@ -356,13 +363,13 @@ class _FilesScreenState extends State<FilesScreen> {
           if (replace != true) continue;
         }
         final bytesBeforeThis = _uploadedBytes;
-        await webdav.uploadFileWithProgress(remotePath, bytes, onProgress: (sent, total) {
+        await webdav.uploadFileWithProgress(remotePath, fileData, onProgress: (sent, total) {
           if (mounted) setState(() => _uploadedBytes = bytesBeforeThis + sent);
         });
 
         if (mounted) {
           setState(() {
-            _uploadedBytes = bytesBeforeThis + bytes.length;
+            _uploadedBytes = bytesBeforeThis + fileSize;
             _uploadedCount = i + 1;
           });
         }
@@ -2085,8 +2092,9 @@ class _FilesScreenState extends State<FilesScreen> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close, size: 16, color: AppColors.muted),
-                  onPressed: () => setState(() { _isUploading = false; }),
+                  icon: const Icon(Icons.close, size: 18, color: AppColors.filePdf),
+                  tooltip: 'Cancel upload',
+                  onPressed: () => setState(() { _uploadCancelled = true; _isUploading = false; }),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                 ),

@@ -35,6 +35,7 @@ class _HomeShellState extends State<HomeShell> {
   String _currentFilesPath = '/';
   Future<void> Function()? _currentRefresh;
   bool _isUploading = false;
+  bool _uploadCancelled = false;
   String _uploadingFileName = '';
   int _uploadedCount = 0;
   int _uploadTotalCount = 0;
@@ -131,6 +132,7 @@ class _HomeShellState extends State<HomeShell> {
       for (final f in result.files) totalBytes += f.size;
       setState(() {
         _isUploading = true;
+        _uploadCancelled = false;
         _uploadTotalCount = result.files.length;
         _uploadedCount = 0;
         _uploadedBytes = 0;
@@ -138,17 +140,22 @@ class _HomeShellState extends State<HomeShell> {
       });
 
       for (int i = 0; i < result.files.length; i++) {
+        if (_uploadCancelled) break;
         final file = result.files[i];
         final fileName = file.name;
         final filePath = file.path;
 
         setState(() { _uploadingFileName = fileName; _uploadedCount = i; });
 
-        Uint8List bytes;
-        if (file.bytes != null) {
-          bytes = file.bytes!;
-        } else if (filePath != null) {
-          bytes = await File(filePath).readAsBytes();
+        // Prefer file path (streams from disk) over loading into memory
+        dynamic fileData;
+        int fileSize;
+        if (filePath != null) {
+          fileData = filePath;
+          fileSize = file.size;
+        } else if (file.bytes != null) {
+          fileData = file.bytes!;
+          fileSize = file.bytes!.length;
         } else {
           continue;
         }
@@ -158,12 +165,12 @@ class _HomeShellState extends State<HomeShell> {
         final bytesBeforeThis = _uploadedBytes;
         await webdav.uploadFileWithProgress(
           '${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName',
-          bytes,
+          fileData,
           onProgress: (sent, total) {
             if (mounted) setState(() => _uploadedBytes = bytesBeforeThis + sent);
           },
         );
-        setState(() { _uploadedCount = i + 1; _uploadedBytes = bytesBeforeThis + bytes.length; });
+        setState(() { _uploadedCount = i + 1; _uploadedBytes = bytesBeforeThis + fileSize; });
       }
 
       if (mounted) {
@@ -566,6 +573,14 @@ class _HomeShellState extends State<HomeShell> {
                             Text(
                               '${(_uploadedBytes / (1024 * 1024)).toStringAsFixed(1)} / ${(_uploadTotalBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
                               style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 18, color: AppColors.filePdf),
+                              tooltip: 'Cancel upload',
+                              onPressed: () => setState(() { _uploadCancelled = true; _isUploading = false; }),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
                             ),
                           ],
                         ),
