@@ -38,6 +38,8 @@ class _HomeShellState extends State<HomeShell> {
   String _uploadingFileName = '';
   int _uploadedCount = 0;
   int _uploadTotalCount = 0;
+  int _uploadedBytes = 0;
+  int _uploadTotalBytes = 0;
 
   /// Check if file exists in folder, ask user to replace or cancel. Returns true if should proceed.
   Future<bool> _checkAndConfirmOverwrite(String fileName, String folderPath) async {
@@ -125,10 +127,14 @@ class _HomeShellState extends State<HomeShell> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
 
+      int totalBytes = 0;
+      for (final f in result.files) totalBytes += f.size;
       setState(() {
         _isUploading = true;
         _uploadTotalCount = result.files.length;
         _uploadedCount = 0;
+        _uploadedBytes = 0;
+        _uploadTotalBytes = totalBytes;
       });
 
       for (int i = 0; i < result.files.length; i++) {
@@ -150,7 +156,7 @@ class _HomeShellState extends State<HomeShell> {
         final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
         if (!await _checkAndConfirmOverwrite(fileName, basePath)) continue;
         await webdav.uploadFile('${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName', bytes);
-        setState(() { _uploadedCount = i + 1; });
+        setState(() { _uploadedCount = i + 1; _uploadedBytes += bytes.length; });
       }
 
       if (mounted) {
@@ -536,15 +542,34 @@ class _HomeShellState extends State<HomeShell> {
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     color: AppColors.greenActiveBg,
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.green700)),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Uploading $_uploadingFileName ($_uploadedCount/$_uploadTotalCount)',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.heading),
-                            overflow: TextOverflow.ellipsis,
+                        Row(
+                          children: [
+                            const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.green700)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Uploading $_uploadingFileName ($_uploadedCount/$_uploadTotalCount)',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.heading),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Text(
+                              '${(_uploadedBytes / (1024 * 1024)).toStringAsFixed(1)} / ${(_uploadTotalBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
+                              style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: _uploadTotalBytes > 0 ? _uploadedBytes / _uploadTotalBytes : 0,
+                            backgroundColor: AppColors.grey91,
+                            color: AppColors.green700,
+                            minHeight: 4,
                           ),
                         ),
                       ],
