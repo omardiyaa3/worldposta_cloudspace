@@ -278,54 +278,66 @@ class WebDavService {
     }
   }
 
-  /// Upload a local file path with real-time progress callback
-  Future<void> uploadFileWithProgress(String remotePath, dynamic fileData, {void Function(int sent, int total)? onProgress}) async {
+  /// Upload a file with real-time network progress callback and optional cancellation
+  Future<void> uploadFileWithProgress(String remotePath, dynamic fileData, {void Function(int sent, int total)? onProgress, bool Function()? isCancelled}) async {
     final url = _buildUri(remotePath);
 
-    // If fileData is a String (file path), stream from disk
-    // If fileData is Uint8List, write to temp file first then stream
     File file;
+    bool tempFile = false;
     if (fileData is String) {
       file = File(fileData);
     } else if (fileData is Uint8List) {
-      // Write to temp file to enable streaming
       final tempDir = Directory.systemTemp;
       file = File('${tempDir.path}/cloudspace_upload_${DateTime.now().millisecondsSinceEpoch}');
       await file.writeAsBytes(fileData);
+      tempFile = true;
     } else {
       throw Exception('Invalid fileData type');
     }
 
     final totalBytes = await file.length();
-    final request = http.StreamedRequest('PUT', url);
-    request.headers.addAll(_headers);
-    request.headers['Content-Type'] = 'application/octet-stream';
-    request.contentLength = totalBytes;
 
-    // Feed file stream into request, tracking bytes sent
-    int sent = 0;
-    final stream = file.openRead();
-    stream.listen(
-      (chunk) {
-        request.sink.add(chunk);
+    // Use dart:io HttpClient directly so we can flush() after each chunk
+    // flush() waits for data to reach the OS network buffer = real progress
+    final httpClient = HttpClient();
+    httpClient.badCertificateCallback = (cert, host, port) => host.contains('worldposta.com');
+    try {
+      final request = await httpClient.openUrl('PUT', url);
+      request.headers.set('Authorization', _headers['Authorization']!);
+      request.headers.set('OCS-APIRequest', 'true');
+      request.headers.set('Content-Type', 'application/octet-stream');
+      request.contentLength = totalBytes;
+
+      int sent = 0;
+      final stream = file.openRead();
+      bool cancelled = false;
+      await for (final chunk in stream) {
+        if (isCancelled?.call() == true) {
+          cancelled = true;
+          break;
+        }
+        request.add(chunk);
+        await request.flush();
         sent += chunk.length;
         onProgress?.call(sent, totalBytes);
-      },
-      onDone: () => request.sink.close(),
-      onError: (e) => request.sink.addError(e),
-    );
+      }
 
-    final response = await _client.send(request);
-    final statusCode = response.statusCode;
-    await response.stream.drain();
+      if (cancelled) {
+        request.close().ignore();
+        throw Exception('Upload cancelled');
+      }
 
-    // Clean up temp file if we created one
-    if (fileData is Uint8List) {
-      try { await file.delete(); } catch (_) {}
-    }
+      final response = await request.close();
+      await response.drain();
 
-    if (statusCode != 201 && statusCode != 204 && statusCode != 200) {
-      throw Exception('Upload failed: $statusCode');
+      if (response.statusCode != 201 && response.statusCode != 204 && response.statusCode != 200) {
+        throw Exception('Upload failed: ${response.statusCode}');
+      }
+    } finally {
+      httpClient.close();
+      if (tempFile) {
+        try { await file.delete(); } catch (_) {}
+      }
     }
   }
 

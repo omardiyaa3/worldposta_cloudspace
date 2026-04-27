@@ -169,6 +169,7 @@ class _HomeShellState extends State<HomeShell> {
           onProgress: (sent, total) {
             if (mounted) setState(() => _uploadedBytes = bytesBeforeThis + sent);
           },
+          isCancelled: () => _uploadCancelled,
         );
         setState(() { _uploadedCount = i + 1; _uploadedBytes = bytesBeforeThis + fileSize; });
       }

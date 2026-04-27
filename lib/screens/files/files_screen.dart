@@ -363,7 +363,7 @@ class _FilesScreenState extends State<FilesScreen> {
           if (replace != true) continue;
         }
         final bytesBeforeThis = _uploadedBytes;
-        await webdav.uploadFileWithProgress(remotePath, fileData, onProgress: (sent, total) {
+        await webdav.uploadFileWithProgress(remotePath, fileData, isCancelled: () => _uploadCancelled, onProgress: (sent, total) {
           if (mounted) setState(() => _uploadedBytes = bytesBeforeThis + sent);
         });
 
