@@ -2326,12 +2326,14 @@ class _FilesScreenState extends State<FilesScreen> {
       } catch (_) {}
     }
 
+    final isSearching = widget.searchQuery.isNotEmpty || _searchQuery.isNotEmpty;
     return ListView(children: [const SizedBox(height: 100), Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            widget.mode == FileViewMode.trash ? Icons.delete_outline
+            isSearching ? Icons.search_off
+                : widget.mode == FileViewMode.trash ? Icons.delete_outline
                 : widget.mode == FileViewMode.starred ? Icons.star_outline
                 : Icons.folder_open,
             size: 64,
@@ -2339,8 +2341,8 @@ class _FilesScreenState extends State<FilesScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            _searchQuery.isNotEmpty
-                ? 'No results for "$_searchQuery"'
+            isSearching
+                ? 'No results found for "${widget.searchQuery.isNotEmpty ? widget.searchQuery : _searchQuery}"'
                 : widget.mode == FileViewMode.trash ? 'Trash is empty'
                 : widget.mode == FileViewMode.starred ? 'No starred files'
                 : widget.mode == FileViewMode.shared ? 'No shared files'
@@ -2348,7 +2350,7 @@ class _FilesScreenState extends State<FilesScreen> {
                 : 'This folder is empty',
             style: const TextStyle(color: AppColors.body, fontSize: 16),
           ),
-          if (widget.mode == FileViewMode.files && _searchQuery.isEmpty) ...[
+          if (!isSearching && widget.mode == FileViewMode.files) ...[
             const SizedBox(height: 16),
             ElevatedButton.icon(onPressed: _uploadFile, icon: const Icon(Icons.upload_file), label: const Text('Upload File')),
           ],
@@ -2722,6 +2724,9 @@ class _FileRow extends StatelessWidget {
                           Text(file.extension.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: getFileTypeColor(file.extension))),
                         if (file.isDirectory)
                           Text(file.sizeFormatted, style: const TextStyle(fontSize: 11, color: AppColors.green700)),
+                        // Show folder path for search results
+                        if (file.parentPath.isNotEmpty && file.parentPath != '/')
+                          Text(file.parentPath, style: const TextStyle(fontSize: 10, color: AppColors.muted), overflow: TextOverflow.ellipsis),
                       ],
                     ),
                   ),
