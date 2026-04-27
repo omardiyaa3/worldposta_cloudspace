@@ -151,10 +151,18 @@ class _FilesScreenState extends State<FilesScreen> {
       final cache = context.read<DataCacheService>();
 
       List<NcFile> files;
-      if (widget.searchQuery.isNotEmpty && !_browsingAfterSearch) {
+      if (_browsingTrashFolder) {
+        // Browsing inside a trash folder — use special trash PROPFIND
+        final auth = context.read<AuthService>();
+        final webdav = WebDavService(auth);
+        files = await webdav.listTrashFolder(_currentPath);
+      } else if (widget.searchQuery.isNotEmpty && !_browsingAfterSearch) {
         final auth = context.read<AuthService>();
         final webdav = WebDavService(auth);
         files = await webdav.search(widget.searchQuery);
+      } else if (_browsingAfterSearch && _currentPath != '/') {
+        // Navigated into a folder from search/shared/starred — load folder contents
+        files = await cache.getFolder(_currentPath);
       } else {
         switch (widget.mode) {
           case FileViewMode.files:
@@ -256,14 +264,15 @@ class _FilesScreenState extends State<FilesScreen> {
 
   bool _browsingAfterSearch = false;
 
+  bool _browsingTrashFolder = false;
+
   void _navigateToFolder(NcFile folder) {
-    if (widget.mode == FileViewMode.trash) return; // Trash paths need special handling
     setState(() {
       _currentPath = folder.path;
       _files = [];
       _filteredFiles = [];
+      if (widget.mode == FileViewMode.trash) _browsingTrashFolder = true;
       if (widget.searchQuery.isNotEmpty) _browsingAfterSearch = true;
-      // Switch to folder browsing mode for non-files views
       if (widget.mode != FileViewMode.files) _browsingAfterSearch = true;
     });
     widget.onPathChanged?.call(folder.path);

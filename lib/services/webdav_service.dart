@@ -509,6 +509,56 @@ class WebDavService {
   }
 
   /// List trash (deleted files)
+  Future<List<NcFile>> listTrashFolder(String trashFolderPath) async {
+    final trashPath = '/remote.php/dav/trashbin/${_auth.userId}/trash/$trashFolderPath/';
+    final url = _buildCustomDavUri(trashPath);
+    final request = http.Request('PROPFIND', url);
+    request.headers.addAll(_headers);
+    request.headers['Depth'] = '1';
+    request.headers['Content-Type'] = 'application/xml; charset=utf-8';
+    request.body = '''<?xml version="1.0" encoding="UTF-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+  <d:prop>
+    <d:getlastmodified/>
+    <d:getcontentlength/>
+    <d:resourcetype/>
+    <d:getcontenttype/>
+    <oc:size/>
+    <oc:fileid/>
+  </d:prop>
+</d:propfind>''';
+    final streamedResponse = await _client.send(request);
+    final response = await http.Response.fromStream(streamedResponse);
+    if (response.statusCode != 207) return [];
+    // Parse response — items inside trash folders have regular names
+    final document = XmlDocument.parse(response.body);
+    final responses = document.findAllElements('d:response');
+    final files = <NcFile>[];
+    for (final resp in responses) {
+      final href = _safeDecode(resp.findElements('d:href').firstOrNull?.innerText ?? '');
+      if (href.isEmpty || href.endsWith('$trashFolderPath/')) continue;
+      final prop = resp.findElements('d:propstat').firstOrNull?.findElements('d:prop').firstOrNull;
+      if (prop == null) continue;
+      final resourceType = prop.findElements('d:resourcetype').firstOrNull;
+      final isDir = resourceType?.findElements('d:collection').isNotEmpty ?? false;
+      final sizeStr = prop.findElements('oc:size').firstOrNull?.innerText ?? prop.findElements('d:getcontentlength').firstOrNull?.innerText ?? '0';
+      final segments = href.split('/').where((s) => s.isNotEmpty).toList();
+      final name = segments.isNotEmpty ? segments.last : '';
+      if (name.isEmpty) continue;
+      // Build a relative path for further navigation
+      final itemPath = '$trashFolderPath/$name';
+      files.add(NcFile(
+        path: itemPath,
+        name: name,
+        isDirectory: isDir,
+        size: int.tryParse(sizeStr) ?? 0,
+        contentType: prop.findElements('d:getcontenttype').firstOrNull?.innerText,
+        fileId: prop.findElements('oc:fileid').firstOrNull?.innerText,
+      ));
+    }
+    return files;
+  }
+
   Future<List<NcFile>> listTrash() async {
     final trashPath = '/remote.php/dav/trashbin/${_auth.userId}/trash/';
     final url = _buildCustomDavUri(trashPath);
