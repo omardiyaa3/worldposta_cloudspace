@@ -355,11 +355,14 @@ class _FilesScreenState extends State<FilesScreen> {
           );
           if (replace != true) continue;
         }
-        await webdav.uploadFile(remotePath, bytes);
+        final bytesBeforeThis = _uploadedBytes;
+        await webdav.uploadFileWithProgress(remotePath, bytes, onProgress: (sent, total) {
+          if (mounted) setState(() => _uploadedBytes = bytesBeforeThis + sent);
+        });
 
         if (mounted) {
           setState(() {
-            _uploadedBytes += bytes.length;
+            _uploadedBytes = bytesBeforeThis + bytes.length;
             _uploadedCount = i + 1;
           });
         }

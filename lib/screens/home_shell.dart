@@ -155,8 +155,15 @@ class _HomeShellState extends State<HomeShell> {
 
         final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
         if (!await _checkAndConfirmOverwrite(fileName, basePath)) continue;
-        await webdav.uploadFile('${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName', bytes);
-        setState(() { _uploadedCount = i + 1; _uploadedBytes += bytes.length; });
+        final bytesBeforeThis = _uploadedBytes;
+        await webdav.uploadFileWithProgress(
+          '${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName',
+          bytes,
+          onProgress: (sent, total) {
+            if (mounted) setState(() => _uploadedBytes = bytesBeforeThis + sent);
+          },
+        );
+        setState(() { _uploadedCount = i + 1; _uploadedBytes = bytesBeforeThis + bytes.length; });
       }
 
       if (mounted) {

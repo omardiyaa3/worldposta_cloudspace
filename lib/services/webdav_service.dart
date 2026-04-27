@@ -278,6 +278,36 @@ class WebDavService {
     }
   }
 
+  /// Upload bytes with real-time progress callback
+  Future<void> uploadFileWithProgress(String remotePath, Uint8List data, {void Function(int sent, int total)? onProgress}) async {
+    final url = _buildUri(remotePath);
+    final request = http.StreamedRequest('PUT', url);
+    request.headers.addAll(_headers);
+    request.headers['Content-Type'] = 'application/octet-stream';
+    request.contentLength = data.length;
+
+    // Stream the bytes in chunks, reporting progress
+    const chunkSize = 64 * 1024; // 64KB chunks
+    int sent = 0;
+    for (var offset = 0; offset < data.length; offset += chunkSize) {
+      final end = (offset + chunkSize < data.length) ? offset + chunkSize : data.length;
+      request.sink.add(data.sublist(offset, end));
+      sent += end - offset;
+      onProgress?.call(sent, data.length);
+    }
+    request.sink.close();
+
+    final response = await _client.send(request);
+    if (response.statusCode != 201 &&
+        response.statusCode != 204 &&
+        response.statusCode != 200) {
+      final body = await response.stream.bytesToString();
+      throw Exception('Upload failed: ${response.statusCode} $body');
+    }
+    // Drain response
+    await response.stream.drain();
+  }
+
   /// Stream-upload a local file (works for any size)
   Future<void> uploadFileStreamed(String localPath, String remotePath) async {
     final url = _buildUri(remotePath);
