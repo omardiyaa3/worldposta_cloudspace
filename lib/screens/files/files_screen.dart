@@ -2781,8 +2781,8 @@ class _FileRow extends StatelessWidget {
                         if (file.isDirectory)
                           Text(file.sizeFormatted, style: const TextStyle(fontSize: 11, color: AppColors.green700)),
                         // Show folder path for search results
-                        if (file.parentPath.isNotEmpty && file.parentPath != '/')
-                          Text('in (${file.parentPath.split('/').where((s) => s.isNotEmpty).lastOrNull ?? file.parentPath})', style: const TextStyle(fontSize: 10, color: AppColors.muted), overflow: TextOverflow.ellipsis),
+                        if (file.parentPath.isNotEmpty)
+                          Text('in (${file.parentPath == '/' ? 'My Files' : file.parentPath.split('/').where((s) => s.isNotEmpty).lastOrNull ?? 'My Files'})', style: const TextStyle(fontSize: 10, color: AppColors.muted), overflow: TextOverflow.ellipsis),
                       ],
                     ),
                   ),
