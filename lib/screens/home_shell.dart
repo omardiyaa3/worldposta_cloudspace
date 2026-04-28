@@ -118,6 +118,10 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _uploadFile() async {
+    if (_isUploading) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload already in progress'), backgroundColor: AppColors.muted));
+      return;
+    }
     try {
       final result = await FilePicker.platform.pickFiles(
         withData: false,
@@ -130,6 +134,7 @@ class _HomeShellState extends State<HomeShell> {
 
       int totalBytes = 0;
       for (final f in result.files) totalBytes += f.size;
+      int _actualUploaded = 0;
       setState(() {
         _isUploading = true;
         _uploadCancelled = false;
@@ -161,7 +166,7 @@ class _HomeShellState extends State<HomeShell> {
         }
 
         final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
-        if (!await _checkAndConfirmOverwrite(fileName, basePath)) continue;
+        if (!await _checkAndConfirmOverwrite(fileName, basePath)) { setState(() { _uploadedCount = i + 1; }); continue; }
         final bytesBeforeThis = _uploadedBytes;
         await webdav.uploadFileWithProgress(
           '${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName',
@@ -171,6 +176,7 @@ class _HomeShellState extends State<HomeShell> {
           },
           isCancelled: () => _uploadCancelled,
         );
+        _actualUploaded++;
         setState(() { _uploadedCount = i + 1; _uploadedBytes = bytesBeforeThis + fileSize; });
       }
 
@@ -178,12 +184,14 @@ class _HomeShellState extends State<HomeShell> {
         setState(() => _isUploading = false);
         if (_uploadCancelled) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Upload cancelled ($_uploadedCount/${result.files.length} files uploaded)'), backgroundColor: AppColors.muted),
+            SnackBar(content: Text('Upload cancelled ($_actualUploaded file${_actualUploaded != 1 ? 's' : ''} uploaded)'), backgroundColor: AppColors.muted),
           );
+        } else if (_actualUploaded == 0) {
+          // All files were skipped (duplicates cancelled)
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Uploaded ${result.files.length} file${result.files.length > 1 ? 's' : ''}'),
+              content: Text('Uploaded $_actualUploaded file${_actualUploaded != 1 ? 's' : ''}'),
               backgroundColor: AppColors.green700,
             ),
           );
@@ -289,13 +297,13 @@ class _HomeShellState extends State<HomeShell> {
           'xlsx': 'Spreadsheet (.xlsx)',
           'pptx': 'Presentation (.pptx)',
         };
+        String? errorText;
         return StatefulBuilder(
           builder: (ctx, setDialogState) => AlertDialog(
             title: const Text('New File'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // File type picker
                 ...types.entries.map((e) => RadioListTile<String>(
                   title: Text(e.value),
                   value: e.key,
@@ -311,15 +319,28 @@ class _HomeShellState extends State<HomeShell> {
                   decoration: InputDecoration(
                     labelText: 'File name',
                     suffixText: '.$selectedType',
+                    errorText: errorText,
                   ),
-                  onSubmitted: (_) => Navigator.pop(ctx, {'name': nameController.text, 'ext': selectedType}),
+                  onSubmitted: (_) {
+                    if (nameController.text.trim().isEmpty) {
+                      setDialogState(() => errorText = 'Please enter a file name');
+                    } else {
+                      Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
+                    }
+                  },
                 ),
               ],
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
               ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, {'name': nameController.text, 'ext': selectedType}),
+                onPressed: () {
+                  if (nameController.text.trim().isEmpty) {
+                    setDialogState(() => errorText = 'Please enter a file name');
+                  } else {
+                    Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
+                  }
+                },
                 child: const Text('Create'),
               ),
             ],

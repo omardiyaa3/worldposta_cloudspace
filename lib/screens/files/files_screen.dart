@@ -66,7 +66,7 @@ class _FilesScreenState extends State<FilesScreen> {
     if (s.contains('TimeoutException') || s.contains('timed out')) {
       return 'Request timed out. Please try again.';
     }
-    if (s.contains('403')) return 'Access denied.';
+    if (s.contains('403')) return 'Access denied. You may not have permission to modify this file.';
     if (s.contains('404')) return 'Not found on server.';
     if (s.contains('423')) return 'File is locked. Try again in a moment.';
     if (s.contains('500') || s.contains('502') || s.contains('503')) return 'Server error. Try again later.';
@@ -294,6 +294,10 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> _uploadFiles(List<PlatformFile> files) async {
+    if (_isUploading) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload already in progress'), backgroundColor: AppColors.muted));
+      return;
+    }
     try {
       setState(() {
         _isUploading = true;
@@ -489,6 +493,7 @@ class _FilesScreenState extends State<FilesScreen> {
           'xlsx': 'Spreadsheet (.xlsx)',
           'pptx': 'Presentation (.pptx)',
         };
+        String? errorText;
         return StatefulBuilder(
           builder: (ctx, setDialogState) => AlertDialog(
             title: const Text('New File'),
@@ -510,15 +515,28 @@ class _FilesScreenState extends State<FilesScreen> {
                   decoration: InputDecoration(
                     labelText: 'File name',
                     suffixText: '.$selectedType',
+                    errorText: errorText,
                   ),
-                  onSubmitted: (_) => Navigator.pop(ctx, {'name': nameController.text, 'ext': selectedType}),
+                  onSubmitted: (_) {
+                    if (nameController.text.trim().isEmpty) {
+                      setDialogState(() => errorText = 'Please enter a file name');
+                    } else {
+                      Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
+                    }
+                  },
                 ),
               ],
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
               ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, {'name': nameController.text, 'ext': selectedType}),
+                onPressed: () {
+                  if (nameController.text.trim().isEmpty) {
+                    setDialogState(() => errorText = 'Please enter a file name');
+                  } else {
+                    Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
+                  }
+                },
                 child: const Text('Create'),
               ),
             ],
@@ -924,6 +942,8 @@ class _FilesScreenState extends State<FilesScreen> {
 
   Future<void> _shareFile(NcFile file) async {
     _newSharePermission = 1; // Default to read-only for public links
+    _sharePasswordController.clear();
+    _shareExpiration = null;
     final auth = context.read<AuthService>();
     final sharesUrl = Uri.parse(
       '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?path=${Uri.encodeComponent(file.path)}&format=json',
@@ -2453,21 +2473,27 @@ class _FilesScreenState extends State<FilesScreen> {
                   ],
                 ),
               ),
-              ...items.map((file) => _FileRow(
+              ...items.map((file) {
+                // Check if file is view-only (shared with read permission only)
+                final perms = int.tryParse(file.permissions ?? '') ?? -1;
+                final isViewOnly = perms != -1 && (perms & 2) == 0 && (perms & 4) == 0 && (perms & 8) == 0;
+                final isSharedWithMe = widget.mode == FileViewMode.shared && !_showSharedByMe;
+                final canEdit = !isSharedWithMe || !isViewOnly;
+                return _FileRow(
                 file: file,
                 isMobile: isMobile,
                 onTap: file.isDirectory ? () => _navigateToFolder(file) : (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _openFile(file) : null,
-                onDelete: widget.mode != FileViewMode.trash ? () => _deleteFile(file) : null,
+                onDelete: (widget.mode != FileViewMode.trash && canEdit) ? () => _deleteFile(file) : null,
                 onDownload: (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _downloadFile(file) : null,
-                onRename: widget.mode != FileViewMode.trash ? () => _renameFile(file) : null,
+                onRename: (widget.mode != FileViewMode.trash && canEdit) ? () => _renameFile(file) : null,
                 onToggleFavorite: widget.mode != FileViewMode.trash ? () => _toggleFavorite(file) : null,
                 onSetReminder: (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _setReminder(file) : null,
                 onShare: widget.mode != FileViewMode.trash ? () => _shareFile(file) : null,
-                onMove: widget.mode != FileViewMode.trash ? () => _moveFile(file) : null,
+                onMove: (widget.mode != FileViewMode.trash && canEdit) ? () => _moveFile(file) : null,
                 onViewActivity: (file.fileId != null && file.fileId!.isNotEmpty) ? () => _showFileActivity(file) : null,
                 onPermanentDelete: widget.mode == FileViewMode.trash ? () => _permanentlyDeleteFromTrash(file) : null,
                 onRestore: widget.mode == FileViewMode.trash ? () => _restoreFromTrash(file) : null,
-              )),
+              );}),
             ],
           ),
         );
@@ -2749,7 +2775,7 @@ class _FileRow extends StatelessWidget {
                           Text(file.sizeFormatted, style: const TextStyle(fontSize: 11, color: AppColors.green700)),
                         // Show folder path for search results
                         if (file.parentPath.isNotEmpty && file.parentPath != '/')
-                          Text(file.parentPath, style: const TextStyle(fontSize: 10, color: AppColors.muted), overflow: TextOverflow.ellipsis),
+                          Text('in (${file.parentPath.split('/').where((s) => s.isNotEmpty).lastOrNull ?? file.parentPath})', style: const TextStyle(fontSize: 10, color: AppColors.muted), overflow: TextOverflow.ellipsis),
                       ],
                     ),
                   ),
