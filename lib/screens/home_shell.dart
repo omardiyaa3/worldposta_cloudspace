@@ -165,7 +165,7 @@ class _HomeShellState extends State<HomeShell> {
           continue;
         }
 
-        final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+        final basePath = _currentFilesPath;
         if (!await _checkAndConfirmOverwrite(fileName, basePath)) { setState(() { _uploadedCount = i + 1; }); continue; }
         final bytesBeforeThis = _uploadedBytes;
         await webdav.uploadFileWithProgress(
@@ -215,7 +215,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _createFolder() async {
-    final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+    final basePath = _currentFilesPath;
     // Load existing items directly from server for duplicate check
     List<NcFile> existingItems = [];
     try {
@@ -353,7 +353,7 @@ class _HomeShellState extends State<HomeShell> {
     try {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
-      final basePath = _currentRoute == 'files' ? _currentFilesPath : '/';
+      final basePath = _currentFilesPath;
       if (!await _checkAndConfirmOverwrite(fileName, basePath)) return;
       final remotePath = '${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName';
       await webdav.uploadFile(remotePath, Uint8List(0));
