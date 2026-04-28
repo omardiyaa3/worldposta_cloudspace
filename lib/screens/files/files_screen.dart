@@ -1516,33 +1516,35 @@ class _FilesScreenState extends State<FilesScreen> {
                                       }
                                       if (newPerms == null || newPerms == (perms & 15)) return;
 
-                                      // Try PUT first (works for user shares type 0)
+                                      // Update share permissions: try PUT first, fall back to delete+recreate
                                       try {
-                                        final putUrl = Uri.parse(
+                                        final shareUrl = Uri.parse(
                                           '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares/$shareId?format=json',
                                         );
-                                        final resp = await WebDavService.sharedHttpClient.put(putUrl, headers: {
+                                        Map<String, dynamic>? updatedShare;
+
+                                        // Try PUT
+                                        final putResp = await WebDavService.sharedHttpClient.put(shareUrl, headers: {
                                           ...headers,
                                           'Content-Type': 'application/x-www-form-urlencoded',
                                         }, body: 'permissions=$newPerms');
+                                        debugPrint('PUT share: ${putResp.statusCode} ${putResp.body}');
 
                                         bool putWorked = false;
-                                        Map<String, dynamic>? updatedShare;
-                                        if (resp.statusCode == 200) {
-                                          final data = jsonDecode(resp.body);
-                                          final meta = data['ocs']?['meta'];
-                                          final updatedRaw = data['ocs']?['data'];
-                                          if (updatedRaw is Map<String, dynamic>) updatedShare = updatedRaw;
-                                          else if (updatedRaw is List && updatedRaw.isNotEmpty) updatedShare = updatedRaw.first as Map<String, dynamic>?;
-                                          if (meta?['statuscode'] == 100 && updatedShare != null) {
-                                            putWorked = true;
+                                        if (putResp.statusCode == 200) {
+                                          final putData = jsonDecode(putResp.body);
+                                          final meta = putData['ocs']?['meta'];
+                                          if (meta?['statuscode'] == 100) {
+                                            final raw = putData['ocs']?['data'];
+                                            if (raw is Map<String, dynamic>) { updatedShare = raw; putWorked = true; }
+                                            else if (raw is List && raw.isNotEmpty) { updatedShare = raw.first as Map<String, dynamic>?; putWorked = true; }
                                           }
                                         }
 
+                                        // PUT failed (e.g. "Cannot increase permissions") — delete+recreate
                                         if (!putWorked) {
-                                          // PUT didn't work — fall back to delete+recreate
-                                          debugPrint('PUT did not update perms, falling back to delete+recreate');
-                                          await WebDavService.sharedHttpClient.delete(putUrl, headers: headers);
+                                          debugPrint('PUT failed, trying delete+recreate');
+                                          await WebDavService.sharedHttpClient.delete(shareUrl, headers: headers);
                                           final postUrl = Uri.parse(
                                             '${auth.serverUrl}/ocs/v1.php/apps/files_sharing/api/v1/shares?format=json',
                                           );
@@ -1555,11 +1557,15 @@ class _FilesScreenState extends State<FilesScreen> {
                                             'shareWith': shareWith,
                                             'permissions': '$newPerms',
                                           });
+                                          debugPrint('Recreate share: ${postResp.statusCode} ${postResp.body}');
                                           if (postResp.statusCode == 200) {
                                             final postData = jsonDecode(postResp.body);
-                                            final raw = postData['ocs']?['data'];
-                                            if (raw is Map<String, dynamic>) updatedShare = raw;
-                                            else if (raw is List && raw.isNotEmpty) updatedShare = raw.first as Map<String, dynamic>?;
+                                            final meta = postData['ocs']?['meta'];
+                                            if (meta?['statuscode'] == 100 || meta?['statuscode'] == 200) {
+                                              final raw = postData['ocs']?['data'];
+                                              if (raw is Map<String, dynamic>) updatedShare = raw;
+                                              else if (raw is List && raw.isNotEmpty) updatedShare = raw.first as Map<String, dynamic>?;
+                                            }
                                           }
                                         }
 
