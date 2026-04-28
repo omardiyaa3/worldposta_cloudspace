@@ -2489,6 +2489,7 @@ class _FilesScreenState extends State<FilesScreen> {
                 return _FileRow(
                 file: file,
                 isMobile: isMobile,
+                showPath: widget.searchQuery.isNotEmpty || _browsingAfterSearch,
                 onTap: file.isDirectory ? () => _navigateToFolder(file) : (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _openFile(file) : null,
                 onDelete: (widget.mode != FileViewMode.trash && canDelete) ? () => _deleteFile(file) : null,
                 onDownload: (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _downloadFile(file) : null,
@@ -2701,8 +2702,9 @@ class _FileRow extends StatelessWidget {
   final VoidCallback? onViewActivity;
   final VoidCallback? onMove;
   final bool isMobile;
+  final bool showPath;
 
-  const _FileRow({required this.file, this.onTap, this.onDelete, this.onDownload, this.onPermanentDelete, this.onRestore, this.onRename, this.onToggleFavorite, this.onSetReminder, this.onShare, this.onViewActivity, this.onMove, this.isMobile = false});
+  const _FileRow({required this.file, this.onTap, this.onDelete, this.onDownload, this.onPermanentDelete, this.onRestore, this.onRename, this.onToggleFavorite, this.onSetReminder, this.onShare, this.onViewActivity, this.onMove, this.isMobile = false, this.showPath = false});
 
   void _showContextMenu(BuildContext context, Offset position) {
     final items = <PopupMenuEntry<String>>[
@@ -2780,9 +2782,9 @@ class _FileRow extends StatelessWidget {
                           Text(file.extension.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: getFileTypeColor(file.extension))),
                         if (file.isDirectory)
                           Text(file.sizeFormatted, style: const TextStyle(fontSize: 11, color: AppColors.green700)),
-                        // Show folder path for search results
-                        if (file.parentPath.isNotEmpty)
-                          Text('in (${file.parentPath == '/' ? 'My Files' : file.parentPath.split('/').where((s) => s.isNotEmpty).lastOrNull ?? 'My Files'})', style: const TextStyle(fontSize: 10, color: AppColors.muted), overflow: TextOverflow.ellipsis),
+                        // Show folder path in search results
+                        if (showPath)
+                          Text('in (${file.parentPath.isEmpty || file.parentPath == '/' ? 'My Files' : file.parentPath.split('/').where((s) => s.isNotEmpty).lastOrNull ?? 'My Files'})', style: const TextStyle(fontSize: 10, color: AppColors.muted), overflow: TextOverflow.ellipsis),
                       ],
                     ),
                   ),
