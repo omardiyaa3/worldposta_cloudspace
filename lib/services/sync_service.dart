@@ -723,7 +723,7 @@ class SyncService extends ChangeNotifier {
 
       if (remote.isDirectory) {
         final subLocal =
-            '$localPath${Platform.pathSeparator}${remote.name}';
+            '$localPath${Platform.pathSeparator}${_sanitizeLocalName(remote.name)}';
         final subRemote = _joinRemote(remotePath, remote.name);
         await _syncDirectory(subLocal, subRemote);
         localByName.remove(remote.name);
@@ -775,7 +775,7 @@ class SyncService extends ChangeNotifier {
           }
           _log2('NEW DOWNLOAD: ${remote.name} (not in journal, not local, ${_formatSize(remote.size)})');
           final destPath =
-              '$localPath${Platform.pathSeparator}${remote.name}';
+              '$localPath${Platform.pathSeparator}${_sanitizeLocalName(remote.name)}';
           totalFilesToSync++;
           totalBytesToSync += remote.size;
           currentFile = remote.name;
@@ -832,7 +832,7 @@ class SyncService extends ChangeNotifier {
               _log2('  -> Downloading server version');
               currentFileTotalBytes = remote.size;
               totalBytesToSync += remote.size;
-              final destPath = '$localPath${Platform.pathSeparator}${remote.name}';
+              final destPath = '$localPath${Platform.pathSeparator}${_sanitizeLocalName(remote.name)}';
               await _retryOperation('download ${remote.name}',
                   () => _downloadWithResume(remote.path, destPath, remote.size));
               totalBytesProcessed += remote.size;
@@ -883,7 +883,7 @@ class SyncService extends ChangeNotifier {
           } else {
             // Server changed, local didn't (or local file deleted).
             final destPath =
-                '$localPath${Platform.pathSeparator}${remote.name}';
+                '$localPath${Platform.pathSeparator}${_sanitizeLocalName(remote.name)}';
             totalFilesToSync++;
             totalBytesToSync += remote.size;
             currentFile = remote.name;
@@ -940,7 +940,7 @@ class SyncService extends ChangeNotifier {
             notifyListeners();
             _log2('  -> Local deleted, re-downloading from server');
             final destPath =
-                '$localPath${Platform.pathSeparator}${remote.name}';
+                '$localPath${Platform.pathSeparator}${_sanitizeLocalName(remote.name)}';
             await _retryOperation(
                 'download ${remote.name}',
                 () => _downloadWithResume(remote.path, destPath, remote.size));
@@ -1404,6 +1404,23 @@ class SyncService extends ChangeNotifier {
   String _joinRemote(String base, String name) {
     if (base.endsWith('/')) return '$base$name';
     return '$base/$name';
+  }
+
+  /// Sanitize filename for local filesystem (Windows has the most restrictions)
+  String _sanitizeLocalName(String name) {
+    if (!Platform.isWindows) return name;
+    // Windows invalid chars: < > : " / \ | ? *
+    // Also trim trailing dots and spaces (Windows silently strips them)
+    var sanitized = name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+    sanitized = sanitized.replaceAll(RegExp(r'[\.\s]+$'), '');
+    if (sanitized.isEmpty) sanitized = '_';
+    return sanitized;
+  }
+
+  /// Check if a filename has characters that can't be used locally
+  bool _hasInvalidLocalChars(String name) {
+    if (!Platform.isWindows) return false;
+    return name.contains(RegExp(r'[<>:"/\\|?*]'));
   }
 
   Future<void> _saveEnabled(bool enabled) async {
