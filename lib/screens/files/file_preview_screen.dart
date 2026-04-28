@@ -396,8 +396,8 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                     tooltip: 'Save',
                     onPressed: _hasUnsavedChanges ? _saveFile : null,
                   ),
-          // Edit toggle for text files
-          if (_isText && _bytes != null)
+          // Edit toggle for text files (hide if view-only permissions)
+          if (_isText && _bytes != null && (widget.file.permissions?.contains('W') ?? true))
             IconButton(
               icon: Icon(
                 _isEditing ? Icons.visibility : Icons.edit,

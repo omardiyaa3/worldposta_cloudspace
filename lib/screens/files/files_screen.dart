@@ -2474,22 +2474,23 @@ class _FilesScreenState extends State<FilesScreen> {
                 ),
               ),
               ...items.map((file) {
-                // Check if file is view-only (shared with read permission only)
-                final perms = int.tryParse(file.permissions ?? '') ?? -1;
-                final isViewOnly = perms != -1 && (perms & 2) == 0 && (perms & 4) == 0 && (perms & 8) == 0;
-                final isSharedWithMe = widget.mode == FileViewMode.shared && !_showSharedByMe;
-                final canEdit = !isSharedWithMe || !isViewOnly;
+                // Check file permissions (Nextcloud letter codes: R=read, W=write, D=delete, N=rename, C=create, K=create files)
+                final p = file.permissions ?? '';
+                final canWrite = p.isEmpty || p.contains('W') || p.contains('K');
+                final canDelete = p.isEmpty || p.contains('D');
+                final canRename = p.isEmpty || p.contains('N');
+                final canShare = p.isEmpty || p.contains('R');
                 return _FileRow(
                 file: file,
                 isMobile: isMobile,
                 onTap: file.isDirectory ? () => _navigateToFolder(file) : (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _openFile(file) : null,
-                onDelete: (widget.mode != FileViewMode.trash && canEdit) ? () => _deleteFile(file) : null,
+                onDelete: (widget.mode != FileViewMode.trash && canDelete) ? () => _deleteFile(file) : null,
                 onDownload: (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _downloadFile(file) : null,
-                onRename: (widget.mode != FileViewMode.trash && canEdit) ? () => _renameFile(file) : null,
+                onRename: (widget.mode != FileViewMode.trash && canRename) ? () => _renameFile(file) : null,
                 onToggleFavorite: widget.mode != FileViewMode.trash ? () => _toggleFavorite(file) : null,
                 onSetReminder: (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _setReminder(file) : null,
-                onShare: widget.mode != FileViewMode.trash ? () => _shareFile(file) : null,
-                onMove: (widget.mode != FileViewMode.trash && canEdit) ? () => _moveFile(file) : null,
+                onShare: (widget.mode != FileViewMode.trash && canShare) ? () => _shareFile(file) : null,
+                onMove: (widget.mode != FileViewMode.trash && canRename) ? () => _moveFile(file) : null,
                 onViewActivity: (file.fileId != null && file.fileId!.isNotEmpty) ? () => _showFileActivity(file) : null,
                 onPermanentDelete: widget.mode == FileViewMode.trash ? () => _permanentlyDeleteFromTrash(file) : null,
                 onRestore: widget.mode == FileViewMode.trash ? () => _restoreFromTrash(file) : null,
