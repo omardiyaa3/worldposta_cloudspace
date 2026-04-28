@@ -1534,14 +1534,13 @@ class _FilesScreenState extends State<FilesScreen> {
                                           final updatedRaw = data['ocs']?['data'];
                                           if (updatedRaw is Map<String, dynamic>) updatedShare = updatedRaw;
                                           else if (updatedRaw is List && updatedRaw.isNotEmpty) updatedShare = updatedRaw.first as Map<String, dynamic>?;
-                                          // Verify permissions actually changed
-                                          if (meta?['statuscode'] == 100 && updatedShare != null && updatedShare['permissions'] == newPerms) {
+                                          if (meta?['statuscode'] == 100 && updatedShare != null) {
                                             putWorked = true;
                                           }
                                         }
 
                                         if (!putWorked) {
-                                          // PUT didn't work (email shares) — fall back to delete+recreate
+                                          // PUT didn't work — fall back to delete+recreate
                                           debugPrint('PUT did not update perms, falling back to delete+recreate');
                                           await WebDavService.sharedHttpClient.delete(putUrl, headers: headers);
                                           final postUrl = Uri.parse(

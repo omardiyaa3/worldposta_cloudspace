@@ -795,12 +795,22 @@ class WebDavService {
     final shares = data['ocs']?['data'] as List? ?? [];
     return shares.map<NcFile>((s) {
       final isDir = s['item_type'] == 'folder';
+      // Convert numeric permissions to Nextcloud letter codes
+      final numPerms = s['permissions'] ?? 0;
+      String permLetters = '';
+      if (numPerms & 1 != 0) permLetters += 'R';  // Read/Share
+      if (numPerms & 2 != 0) permLetters += 'W';  // Write/Update
+      if (numPerms & 4 != 0) permLetters += 'CK'; // Create
+      if (numPerms & 8 != 0) permLetters += 'D';  // Delete
+      if (numPerms & 16 != 0) permLetters += 'R';  // Reshare
+      if (numPerms & 2 != 0 || numPerms & 4 != 0) permLetters += 'NV'; // Rename/Move if can write or create
       return NcFile(
         path: s['file_target'] ?? s['path'] ?? '',
         name: s['file_target']?.split('/')?.last ?? s['path']?.split('/')?.last ?? 'Unknown',
         isDirectory: isDir,
         size: s['item_size'] ?? 0,
         ownerDisplayName: s['displayname_owner'] ?? s['uid_owner'] ?? '',
+        permissions: permLetters.isEmpty ? 'R' : permLetters,
       );
     }).toList();
   }
