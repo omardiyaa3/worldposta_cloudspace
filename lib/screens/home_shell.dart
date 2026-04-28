@@ -421,12 +421,13 @@ class _HomeShellState extends State<HomeShell> {
         );
       case 'files':
         return FilesScreen(key: ValueKey('files_${_searchQuery}'), mode: FileViewMode.files, searchQuery: _searchQuery, onPathChanged: (p) => _currentFilesPath = p, onRefreshReady: (fn) => _currentRefresh = fn);
+
       case 'shared':
-        return FilesScreen(key: ValueKey('shared'), mode: FileViewMode.shared, onRefreshReady: (fn) => _currentRefresh = fn);
+        return FilesScreen(key: ValueKey('shared'), mode: FileViewMode.shared, onPathChanged: (p) => _currentFilesPath = p, onRefreshReady: (fn) => _currentRefresh = fn);
       case 'recent':
-        return FilesScreen(key: ValueKey('recent'), mode: FileViewMode.recent, onRefreshReady: (fn) => _currentRefresh = fn);
+        return FilesScreen(key: ValueKey('recent'), mode: FileViewMode.recent, onPathChanged: (p) => _currentFilesPath = p, onRefreshReady: (fn) => _currentRefresh = fn);
       case 'starred':
-        return FilesScreen(key: ValueKey('starred'), mode: FileViewMode.starred, onRefreshReady: (fn) => _currentRefresh = fn);
+        return FilesScreen(key: ValueKey('starred'), mode: FileViewMode.starred, onPathChanged: (p) => _currentFilesPath = p, onRefreshReady: (fn) => _currentRefresh = fn);
       case 'trash':
         return FilesScreen(key: ValueKey('trash'), mode: FileViewMode.trash, onRefreshReady: (fn) => _currentRefresh = fn);
       case 'activity':
