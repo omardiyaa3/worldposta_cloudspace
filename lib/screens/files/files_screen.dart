@@ -1404,7 +1404,8 @@ class _FilesScreenState extends State<FilesScreen> {
                         itemBuilder: (_, i) {
                           final s = existingShares[i];
                           final type = s['share_type'] ?? -1;
-                          final shareWith = s['share_with_displayname'] ?? s['share_with'] ?? '';
+                          final shareWith = s['share_with'] ?? '';
+                          final shareWithDisplay = s['share_with_displayname'] ?? shareWith;
                           final url = s['url'] ?? '';
                           final shareId = s['id'];
                           final perms = s['permissions'] ?? 1;
@@ -1432,16 +1433,16 @@ class _FilesScreenState extends State<FilesScreen> {
                             label = 'Public link';
                           } else if (type == 4) {
                             icon = Icons.email_outlined;
-                            label = shareWith;
+                            label = shareWithDisplay;
                           } else if (type == 0) {
                             icon = Icons.person_outline;
-                            label = shareWith;
+                            label = shareWithDisplay;
                           } else if (type == 1) {
                             icon = Icons.group_outlined;
-                            label = shareWith;
+                            label = shareWithDisplay;
                           } else {
                             icon = Icons.share;
-                            label = shareWith.isNotEmpty ? shareWith : 'Share #$shareId';
+                            label = shareWithDisplay.isNotEmpty ? shareWithDisplay : 'Share #$shareId';
                           }
                           return ListTile(
                             dense: true,
