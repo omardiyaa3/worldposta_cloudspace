@@ -657,6 +657,14 @@ class _FilesScreenState extends State<FilesScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${file.name} deleted'), backgroundColor: AppColors.green700),
         );
+        // Log deletion to local activity
+        try {
+          context.read<DataCacheService>().logLocalActivity(
+            'file_deleted',
+            'You deleted ${file.name}',
+            user: context.read<AuthService>().displayName,
+          );
+        } catch (_) {}
       }
     } catch (e) {
       if (mounted) {

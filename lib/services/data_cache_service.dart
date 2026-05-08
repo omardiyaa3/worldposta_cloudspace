@@ -18,6 +18,7 @@ class DataCacheService extends ChangeNotifier {
   List<NcFile> trashFiles = [];
   Map<String, dynamic> quota = {};
   List<Map<String, dynamic>> activityFeed = [];
+  final List<Map<String, dynamic>> _localActivity = [];
   String quotaWarningLevel = 'ok';
   bool isFirstLoad = true;
   bool isRefreshing = false;
@@ -98,6 +99,28 @@ class DataCacheService extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  /// Log a local activity event (e.g. deletion)
+  void logLocalActivity(String type, String subject, {String? user}) {
+    _localActivity.insert(0, {
+      'type': type,
+      'subject': subject,
+      'user': user ?? '',
+      'datetime': DateTime.now().toIso8601String(),
+    });
+    notifyListeners();
+  }
+
+  /// Get activity feed merged with local events, sorted by time
+  List<Map<String, dynamic>> get mergedActivityFeed {
+    final all = [..._localActivity, ...activityFeed];
+    all.sort((a, b) {
+      final da = DateTime.tryParse(a['datetime'] ?? '') ?? DateTime(2000);
+      final db = DateTime.tryParse(b['datetime'] ?? '') ?? DateTime(2000);
+      return db.compareTo(da);
+    });
+    return all;
   }
 
   void _updateQuotaWarning() {

@@ -9,7 +9,7 @@ class ActivityScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cache = context.watch<DataCacheService>();
-    final activities = cache.activityFeed;
+    final activities = cache.mergedActivityFeed;
 
     return RefreshIndicator(
       onRefresh: cache.refresh,

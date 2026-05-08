@@ -831,24 +831,47 @@ class WebDavService {
 
     final data = jsonDecode(response.body);
     final shares = data['ocs']?['data'] as List? ?? [];
-    return shares.map<NcFile>((s) {
-      final isDir = s['item_type'] == 'folder';
-      final shareWith = s['share_with_displayname'] ?? s['share_with'] ?? '';
+
+    // Group shares by file path to show aggregated recipients
+    final grouped = <String, Map<String, dynamic>>{};
+    for (final s in shares) {
+      final path = s['path'] ?? '';
+      if (!grouped.containsKey(path)) {
+        grouped[path] = {
+          ...s,
+          '_recipients': <String>[],
+          '_hasPublicLink': false,
+        };
+      }
       final shareType = s['share_type'] ?? -1;
-      String sharedTo;
       if (shareType == 3) {
-        sharedTo = 'Public link';
-      } else if (shareType == 4) {
-        sharedTo = shareWith;
+        grouped[path]!['_hasPublicLink'] = true;
       } else {
-        sharedTo = shareWith;
+        final name = s['share_with_displayname'] ?? s['share_with'] ?? '';
+        if (name.isNotEmpty) (grouped[path]!['_recipients'] as List).add(name);
+      }
+    }
+
+    return grouped.values.map<NcFile>((s) {
+      final isDir = s['item_type'] == 'folder';
+      final recipients = s['_recipients'] as List;
+      final hasLink = s['_hasPublicLink'] as bool;
+      String sharedTo;
+      if (recipients.isEmpty && hasLink) {
+        sharedTo = 'Public link';
+      } else if (recipients.length == 1) {
+        sharedTo = 'Shared with ${recipients.first}${hasLink ? ' + link' : ''}';
+      } else if (recipients.length > 1) {
+        sharedTo = 'Shared with ${recipients.length} people${hasLink ? ' + link' : ''}';
+      } else {
+        sharedTo = 'Shared';
       }
       return NcFile(
         path: s['path'] ?? '',
         name: s['path']?.split('/')?.last ?? s['file_target']?.split('/')?.last ?? 'Unknown',
         isDirectory: isDir,
         size: s['item_size'] ?? 0,
-        ownerDisplayName: sharedTo.isNotEmpty ? 'Shared with: $sharedTo' : 'Shared',
+        ownerDisplayName: sharedTo,
       );
     }).toList();
   }
