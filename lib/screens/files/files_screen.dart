@@ -940,16 +940,17 @@ class _FilesScreenState extends State<FilesScreen> {
       debugPrint('Reminder response: ${response.statusCode} ${response.body}');
 
       if (mounted) {
-        if (response.statusCode == 200 || response.statusCode == 201) {
+        if (response.statusCode == 200 || response.statusCode == 201 || response.statusCode == 204) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Reminder set for ${DateFormat('MMM d, y h:mm a').format(picked)}'),
+              content: Text('Reminder set for ${DateFormat('MMM d, y  h:mm a').format(picked)}'),
               backgroundColor: AppColors.green700,
+              duration: const Duration(seconds: 4),
             ),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Reminder failed: ${response.statusCode}')),
+            SnackBar(content: Text('Reminder failed: ${response.statusCode}'), backgroundColor: AppColors.filePdf),
           );
         }
       }
@@ -1273,6 +1274,10 @@ class _FilesScreenState extends State<FilesScreen> {
                                 newShare = rawData.first as Map<String, dynamic>?;
                               }
 
+                              if (newShare == null || newShare['id'] == null) {
+                                setSheetState(() => shareError = 'Share could not be created. The recipient may not exist on this server.');
+                                return;
+                              }
                               // Check if server applied different permissions, try PUT to fix
                               if (newShare != null) {
                                 final appliedPerms = newShare['permissions'] ?? 0;
@@ -1306,9 +1311,13 @@ class _FilesScreenState extends State<FilesScreen> {
                               }
                               shareWithController.clear();
                               _sharePasswordController.clear();
+                              final shareTypeUsed = newShare?['share_type'] ?? 0;
+                              final isEmailShare = shareTypeUsed == 4;
                               setSheetState(() {
                                 _shareExpiration = null;
-                                shareSuccess = 'Shared with $shareWith';
+                                shareSuccess = isEmailShare
+                                    ? 'Shared via email with $shareWith (recipient will receive a notification email)'
+                                    : 'Shared with $shareWith';
                                 shareError = '';
                               });
                             } else {
@@ -2008,7 +2017,7 @@ class _FilesScreenState extends State<FilesScreen> {
                         Row(
                           children: [
                             Expanded(
-                              child: widget.mode == FileViewMode.files && widget.searchQuery.isEmpty
+                              child: (widget.mode == FileViewMode.files && widget.searchQuery.isEmpty) || _browsingAfterSearch || _browsingTrashFolder
                                   ? SingleChildScrollView(
                                       scrollDirection: Axis.horizontal,
                                       child: _buildBreadcrumb(),
@@ -2317,11 +2326,23 @@ class _FilesScreenState extends State<FilesScreen> {
       children: [
         InkWell(
           onTap: () {
-            setState(() { _currentPath = '/'; _files = []; _filteredFiles = []; });
+            setState(() {
+              _currentPath = '/';
+              _files = [];
+              _filteredFiles = [];
+              _browsingAfterSearch = false;
+              _browsingTrashFolder = false;
+            });
             widget.onPathChanged?.call('/');
             _loadFiles();
           },
-          child: const Text('My Files', style: TextStyle(fontSize: 14, color: AppColors.green700, fontWeight: FontWeight.w500)),
+          child: Text(
+            _browsingAfterSearch && widget.mode == FileViewMode.starred ? 'Starred'
+                : _browsingTrashFolder ? 'Trash'
+                : _browsingAfterSearch && widget.mode == FileViewMode.shared ? 'Shared'
+                : 'My Files',
+            style: const TextStyle(fontSize: 14, color: AppColors.green700, fontWeight: FontWeight.w500),
+          ),
         ),
         ..._breadcrumbs.asMap().entries.map((entry) {
           final isLast = entry.key == _breadcrumbs.length - 1;

@@ -365,7 +365,6 @@ class _HomeShellState extends State<HomeShell> {
           SnackBar(content: Text('File "$fileName" created'), backgroundColor: AppColors.green700),
         );
         // Get file info from server to get the fileId
-        setState(() => _currentRoute = 'files');
         final files = await webdav.listFiles(basePath);
         final newFile = files.where((f) => f.name == fileName).firstOrNull;
         if (newFile != null && mounted) {
