@@ -43,6 +43,8 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _isLoading = true;  // Full-screen spinner (first load only)
   bool _isRefreshing = false;  // Subtle indicator while updating in background
   bool _isGridView = true;
+  final Set<String> _selectedPaths = {};
+  bool get _isSelecting => _selectedPaths.isNotEmpty;
   bool _isUploading = false;
   bool _uploadCancelled = false;
   String _uploadingFileName = '';
@@ -56,6 +58,92 @@ class _FilesScreenState extends State<FilesScreen> {
   int _downloadTotalBytes = 0;
   String? _error;
   String _searchQuery = '';
+
+  List<Widget> _buildBulkActions() {
+    // Compute lowest-common-permissions across all selected items
+    final selectedFiles = _filteredFiles.where((f) => _selectedPaths.contains(f.path)).toList();
+    if (selectedFiles.isEmpty) return [];
+
+    bool allCanDelete = true, allCanRename = true, allCanShare = true;
+    for (final f in selectedFiles) {
+      final p = f.permissions ?? '';
+      if (p.isNotEmpty) {
+        if (!p.contains('D')) allCanDelete = false;
+        if (!p.contains('N')) allCanRename = false;
+        if (!p.contains('R')) allCanShare = false;
+      }
+    }
+    final isTrash = widget.mode == FileViewMode.trash;
+
+    return [
+      if (!isTrash)
+        IconButton(
+          icon: const Icon(Icons.star_outline, size: 20, color: AppColors.heading),
+          tooltip: 'Toggle favorite',
+          onPressed: () async {
+            for (final f in selectedFiles) { await _toggleFavorite(f); }
+            setState(() => _selectedPaths.clear());
+          },
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+      if (!isTrash && allCanDelete)
+        IconButton(
+          icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.filePdf),
+          tooltip: 'Delete selected',
+          onPressed: () async {
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: Text('Delete ${selectedFiles.length} items?'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.filePdf),
+                    child: const Text('Delete'),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed != true) return;
+            for (final f in selectedFiles) {
+              try {
+                final auth = context.read<AuthService>();
+                final webdav = WebDavService(auth);
+                await webdav.delete(f.path);
+              } catch (_) {}
+            }
+            setState(() {
+              _files.removeWhere((f) => _selectedPaths.contains(f.path));
+              _selectedPaths.clear();
+              _applyFilterAndSort();
+            });
+            if (mounted) {
+              context.read<DataCacheService>().clearFolderCache(_currentPath);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${selectedFiles.length} items deleted'), backgroundColor: AppColors.green700),
+              );
+            }
+          },
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+      if (!isTrash)
+        IconButton(
+          icon: const Icon(Icons.download, size: 20, color: AppColors.heading),
+          tooltip: 'Download selected',
+          onPressed: () async {
+            for (final f in selectedFiles) {
+              if (!f.isDirectory) _downloadFile(f);
+            }
+            setState(() => _selectedPaths.clear());
+          },
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+    ];
+  }
 
   static final _invalidNameChars = RegExp(r'[<>:"/\\|?*]');
 
@@ -2249,6 +2337,27 @@ class _FilesScreenState extends State<FilesScreen> {
             ),
           ),
 
+        // Multi-select action bar
+        if (_isSelecting)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: AppColors.greenActiveBg,
+            child: Row(
+              children: [
+                Text('${_selectedPaths.length} selected', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.heading)),
+                const Spacer(),
+                ..._buildBulkActions(),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20, color: AppColors.muted),
+                  tooltip: 'Clear selection',
+                  onPressed: () => setState(() => _selectedPaths.clear()),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: RefreshIndicator(
             color: AppColors.green700,
@@ -2539,7 +2648,17 @@ class _FilesScreenState extends State<FilesScreen> {
                 file: file,
                 isMobile: isMobile,
                 showPath: widget.searchQuery.isNotEmpty || _browsingAfterSearch,
-                onTap: file.isDirectory ? () => _navigateToFolder(file) : (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _openFile(file) : null,
+                isSelected: _selectedPaths.contains(file.path),
+                onSelect: () => setState(() {
+                  if (_selectedPaths.contains(file.path)) { _selectedPaths.remove(file.path); }
+                  else { _selectedPaths.add(file.path); }
+                }),
+                onTap: _isSelecting
+                    ? () => setState(() {
+                        if (_selectedPaths.contains(file.path)) { _selectedPaths.remove(file.path); }
+                        else { _selectedPaths.add(file.path); }
+                      })
+                    : file.isDirectory ? () => _navigateToFolder(file) : (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _openFile(file) : null,
                 onDelete: (widget.mode != FileViewMode.trash && canDelete) ? () => _deleteFile(file) : null,
                 onDownload: (!file.isDirectory && widget.mode != FileViewMode.trash) ? () => _downloadFile(file) : null,
                 onRename: (widget.mode != FileViewMode.trash && canRename) ? () => _renameFile(file) : null,
@@ -2752,8 +2871,10 @@ class _FileRow extends StatelessWidget {
   final VoidCallback? onMove;
   final bool isMobile;
   final bool showPath;
+  final bool isSelected;
+  final VoidCallback? onSelect;
 
-  const _FileRow({required this.file, this.onTap, this.onDelete, this.onDownload, this.onPermanentDelete, this.onRestore, this.onRename, this.onToggleFavorite, this.onSetReminder, this.onShare, this.onViewActivity, this.onMove, this.isMobile = false, this.showPath = false});
+  const _FileRow({required this.file, this.onTap, this.onDelete, this.onDownload, this.onPermanentDelete, this.onRestore, this.onRename, this.onToggleFavorite, this.onSetReminder, this.onShare, this.onViewActivity, this.onMove, this.isMobile = false, this.showPath = false, this.isSelected = false, this.onSelect});
 
   void _showContextMenu(BuildContext context, Offset position) {
     final items = <PopupMenuEntry<String>>[
@@ -2803,11 +2924,12 @@ class _FileRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onSecondaryTapUp: (details) => _showContextMenu(context, details.globalPosition),
-      onLongPressStart: (details) => _showContextMenu(context, details.globalPosition),
+      onLongPressStart: onSelect != null ? (_) => onSelect!() : (details) => _showContextMenu(context, details.globalPosition),
       child: InkWell(
       onTap: onTap,
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: isMobile ? 10 : 16, vertical: isMobile ? 8 : 12),
+        color: isSelected ? AppColors.greenActiveBg : null,
         decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.grey91, width: 0.5))),
         child: Row(
           children: [

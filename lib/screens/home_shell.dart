@@ -41,13 +41,7 @@ class _HomeShellState extends State<HomeShell> {
   String _searchQuery = '';
   String _currentFilesPath = '/';
   Future<void> Function()? _currentRefresh;
-  bool _isUploading = false;
-  bool _uploadCancelled = false;
-  String _uploadingFileName = '';
-  int _uploadedCount = 0;
-  int _uploadTotalCount = 0;
-  int _uploadedBytes = 0;
-  int _uploadTotalBytes = 0;
+  final List<_UploadJob> _uploadJobs = [];
 
   /// Check if file exists in folder, ask user to replace or cancel. Returns true if should proceed.
   Future<bool> _checkAndConfirmOverwrite(String fileName, String folderPath) async {
@@ -125,10 +119,6 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _uploadFile() async {
-    if (_isUploading) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload already in progress'), backgroundColor: AppColors.muted));
-      return;
-    }
     try {
       final result = await FilePicker.platform.pickFiles(
         withData: false,
@@ -138,28 +128,29 @@ class _HomeShellState extends State<HomeShell> {
 
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
+      final basePath = _currentFilesPath;
 
       int totalBytes = 0;
       for (final f in result.files) totalBytes += f.size;
-      int _actualUploaded = 0;
-      setState(() {
-        _isUploading = true;
-        _uploadCancelled = false;
-        _uploadTotalCount = result.files.length;
-        _uploadedCount = 0;
-        _uploadedBytes = 0;
-        _uploadTotalBytes = totalBytes;
-      });
 
+      final job = _UploadJob(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        totalCount: result.files.length,
+        totalBytes: totalBytes,
+      );
+      setState(() => _uploadJobs.add(job));
+
+      int actualUploaded = 0;
       for (int i = 0; i < result.files.length; i++) {
-        if (_uploadCancelled) break;
+        if (job.cancelled) break;
         final file = result.files[i];
         final fileName = file.name;
         final filePath = file.path;
 
-        setState(() { _uploadingFileName = fileName; _uploadedCount = i; });
+        job.fileName = fileName;
+        job.uploadedCount = i;
+        if (mounted) setState(() {});
 
-        // Prefer file path (streams from disk) over loading into memory
         dynamic fileData;
         int fileSize;
         if (filePath != null) {
@@ -172,50 +163,42 @@ class _HomeShellState extends State<HomeShell> {
           continue;
         }
 
-        final basePath = _currentFilesPath;
-        if (!await _checkAndConfirmOverwrite(fileName, basePath)) { setState(() { _uploadedCount = i + 1; }); continue; }
-        final bytesBeforeThis = _uploadedBytes;
+        if (!await _checkAndConfirmOverwrite(fileName, basePath)) { job.uploadedCount = i + 1; continue; }
+        final bytesBeforeThis = job.uploadedBytes;
         await webdav.uploadFileWithProgress(
           '${basePath.endsWith('/') ? basePath : '$basePath/'}$fileName',
           fileData,
           onProgress: (sent, total) {
-            if (mounted) setState(() => _uploadedBytes = bytesBeforeThis + sent);
+            job.uploadedBytes = bytesBeforeThis + sent;
+            if (mounted) setState(() {});
           },
-          isCancelled: () => _uploadCancelled,
+          isCancelled: () => job.cancelled,
         );
-        _actualUploaded++;
-        setState(() { _uploadedCount = i + 1; _uploadedBytes = bytesBeforeThis + fileSize; });
+        actualUploaded++;
+        job.uploadedCount = i + 1;
+        job.uploadedBytes = bytesBeforeThis + fileSize;
+        if (mounted) setState(() {});
       }
 
+      job.done = true;
       if (mounted) {
-        setState(() => _isUploading = false);
-        if (_uploadCancelled) {
+        setState(() => _uploadJobs.remove(job));
+        if (job.cancelled) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Upload cancelled ($_actualUploaded file${_actualUploaded != 1 ? 's' : ''} uploaded)'), backgroundColor: AppColors.muted),
+            SnackBar(content: Text('Upload cancelled ($actualUploaded file${actualUploaded != 1 ? 's' : ''} uploaded)'), backgroundColor: AppColors.muted),
           );
-        } else if (_actualUploaded == 0) {
-          // All files were skipped (duplicates cancelled)
-        } else {
+        } else if (actualUploaded > 0) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Uploaded $_actualUploaded file${_actualUploaded != 1 ? 's' : ''}'),
-              backgroundColor: AppColors.green700,
-            ),
+            SnackBar(content: Text('Uploaded $actualUploaded file${actualUploaded != 1 ? 's' : ''}'), backgroundColor: AppColors.green700),
           );
         }
-        setState(() => _currentRoute = 'files');
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isUploading = false);
         if (e.toString().contains('cancelled')) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Upload cancelled'), backgroundColor: AppColors.muted),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload cancelled'), backgroundColor: AppColors.muted));
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Upload failed: ${e.toString().length > 80 ? e.toString().substring(0, 80) : e}'), backgroundColor: AppColors.filePdf),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: ${e.toString().length > 80 ? e.toString().substring(0, 80) : e}'), backgroundColor: AppColors.filePdf));
         }
       }
     }
@@ -587,53 +570,52 @@ class _HomeShellState extends State<HomeShell> {
                     );
                   },
                 ),
-                // Upload progress banner
-                if (_isUploading)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    color: AppColors.greenActiveBg,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.green700)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'Uploading $_uploadingFileName ($_uploadedCount/$_uploadTotalCount)',
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.heading),
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                // Upload progress banners (stacked for parallel uploads)
+                ..._uploadJobs.map((job) => Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  color: AppColors.greenActiveBg,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.green700)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              '${job.fileName} (${job.uploadedCount}/${job.totalCount})',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.heading),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            Text(
-                              '${(_uploadedBytes / (1024 * 1024)).toStringAsFixed(1)} / ${(_uploadTotalBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
-                              style: const TextStyle(fontSize: 11, color: AppColors.muted),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 18, color: AppColors.filePdf),
-                              tooltip: 'Cancel upload',
-                              onPressed: () => setState(() { _uploadCancelled = true; _isUploading = false; }),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: _uploadTotalBytes > 0 ? _uploadedBytes / _uploadTotalBytes : 0,
-                            backgroundColor: AppColors.grey91,
-                            color: AppColors.green700,
-                            minHeight: 4,
                           ),
+                          Text(
+                            '${(job.uploadedBytes / (1024 * 1024)).toStringAsFixed(1)} / ${(job.totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
+                            style: const TextStyle(fontSize: 10, color: AppColors.muted),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 16, color: AppColors.filePdf),
+                            tooltip: 'Cancel',
+                            onPressed: () => setState(() => job.cancelled = true),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: job.totalBytes > 0 ? job.uploadedBytes / job.totalBytes : 0,
+                          backgroundColor: AppColors.grey91,
+                          color: AppColors.green700,
+                          minHeight: 3,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
+                )),
                 Expanded(child: _buildContent()),
               ],
             ),
@@ -914,4 +896,26 @@ class _AppRailIcon extends StatelessWidget {
       ),
     );
   }
+}
+
+class _UploadJob {
+  final String id;
+  String fileName;
+  int uploadedBytes;
+  int totalBytes;
+  int uploadedCount;
+  int totalCount;
+  bool cancelled;
+  bool done;
+
+  _UploadJob({
+    required this.id,
+    this.fileName = '',
+    this.uploadedBytes = 0,
+    this.totalBytes = 0,
+    this.uploadedCount = 0,
+    this.totalCount = 0,
+    this.cancelled = false,
+    this.done = false,
+  });
 }
