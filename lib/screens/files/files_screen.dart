@@ -57,6 +57,15 @@ class _FilesScreenState extends State<FilesScreen> {
   String? _error;
   String _searchQuery = '';
 
+  static final _invalidNameChars = RegExp(r'[<>:"/\\|?*]');
+
+  /// Validate a file/folder name. Returns error message or null if valid.
+  static String? _validateName(String name, {bool isFolder = false}) {
+    if (name.trim().isEmpty) return 'Please enter a ${isFolder ? 'folder' : 'file'} name';
+    if (_invalidNameChars.hasMatch(name)) return 'Name cannot contain < > : " / \\ | ? *';
+    return null;
+  }
+
   /// Clean up raw exceptions into user-friendly messages.
   String _friendlyError(Object e) {
     final s = e.toString();
@@ -435,20 +444,23 @@ class _FilesScreenState extends State<FilesScreen> {
               autofocus: true,
               decoration: InputDecoration(hintText: 'Folder name', errorText: errorText),
               onSubmitted: (v) {
-                if (v.trim().isEmpty) {
-                  setDialogState(() => errorText = 'Please enter a folder name');
+                final err = _validateName(v, isFolder: true);
+                if (err != null) { setDialogState(() => errorText = err); return; }
+                final val = v.trim();
+                if (_files.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
+                  setDialogState(() => errorText = '"$val" already exists');
                 } else {
-                  Navigator.pop(ctx, v.trim());
+                  Navigator.pop(ctx, val);
                 }
               },
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
               ElevatedButton(onPressed: () {
+                final err = _validateName(controller.text, isFolder: true);
+                if (err != null) { setDialogState(() => errorText = err); return; }
                 final val = controller.text.trim();
-                if (val.isEmpty) {
-                  setDialogState(() => errorText = 'Please enter a folder name');
-                } else if (_files.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
+                if (_files.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
                   setDialogState(() => errorText = '"$val" already exists');
                 } else {
                   Navigator.pop(ctx, val);
@@ -518,11 +530,9 @@ class _FilesScreenState extends State<FilesScreen> {
                     errorText: errorText,
                   ),
                   onSubmitted: (_) {
-                    if (nameController.text.trim().isEmpty) {
-                      setDialogState(() => errorText = 'Please enter a file name');
-                    } else {
-                      Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
-                    }
+                    final err = _validateName(nameController.text);
+                    if (err != null) { setDialogState(() => errorText = err); return; }
+                    Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
                   },
                 ),
               ],
@@ -531,11 +541,9 @@ class _FilesScreenState extends State<FilesScreen> {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
               ElevatedButton(
                 onPressed: () {
-                  if (nameController.text.trim().isEmpty) {
-                    setDialogState(() => errorText = 'Please enter a file name');
-                  } else {
-                    Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
-                  }
+                  final err = _validateName(nameController.text);
+                  if (err != null) { setDialogState(() => errorText = err); return; }
+                  Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
                 },
                 child: const Text('Create'),
               ),
@@ -626,6 +634,18 @@ class _FilesScreenState extends State<FilesScreen> {
       final auth = context.read<AuthService>();
       final webdav = WebDavService(auth);
       await webdav.delete(file.path);
+      // Also delete from local sync folder to prevent re-upload
+      try {
+        final sync = context.read<SyncService>();
+        if (sync.isEnabled && sync.syncFolderPath != null) {
+          final localPath = '${sync.syncFolderPath}${file.path}';
+          final localFile = File(localPath);
+          final localDir = Directory(localPath);
+          if (await localFile.exists()) await localFile.delete();
+          if (await localDir.exists()) await localDir.delete(recursive: true);
+          sync.removeFromJournal(file.path);
+        }
+      } catch (_) {}
       if (mounted) {
         final cache = context.read<DataCacheService>();
         cache.clearFolderCache(_currentPath);
@@ -1165,7 +1185,7 @@ class _FilesScreenState extends State<FilesScreen> {
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: AppColors.green700),
                       onPressed: shareError == '...' ? null : () async {
-                        final shareWith = shareWithController.text.trim();
+                        final shareWith = shareWithController.text.trim().toLowerCase();
                         // TC-005: empty field validation
                         if (shareWith.isEmpty) {
                           setSheetState(() => shareError = 'Please enter a username or email');
@@ -2784,7 +2804,7 @@ class _FileRow extends StatelessWidget {
                           Text(file.sizeFormatted, style: const TextStyle(fontSize: 11, color: AppColors.green700)),
                         // Show folder path in search results
                         if (showPath)
-                          Text('in (${file.parentPath.isEmpty || file.parentPath == '/' ? 'My Files' : file.parentPath.split('/').where((s) => s.isNotEmpty).lastOrNull ?? 'My Files'})', style: const TextStyle(fontSize: 10, color: AppColors.muted), overflow: TextOverflow.ellipsis),
+                          Text('in (${file.parentPath.isEmpty || file.parentPath == '/' ? 'My Files' : file.parentPath.split('/').where((s) => s.isNotEmpty).join('/')})', style: const TextStyle(fontSize: 10, color: AppColors.muted), overflow: TextOverflow.ellipsis),
                       ],
                     ),
                   ),
@@ -2822,7 +2842,10 @@ class _FileRow extends StatelessWidget {
               child: Builder(builder: (ctx) {
                 try {
                   final sync = ctx.watch<SyncService>();
+                  if (!sync.isEnabled) return const SizedBox.shrink();
                   final status = sync.getFileStatus(file.path);
+                  // Don't show "Pending" for files not in the sync folder
+                  if (status == FileSyncStatus.pending && sync.syncFolderPath != null && !file.path.startsWith('/')) return const SizedBox.shrink();
                   switch (status) {
                     case FileSyncStatus.synced:
                       return Row(mainAxisSize: MainAxisSize.min, children: [

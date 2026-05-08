@@ -30,6 +30,13 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  static final _invalidNameChars = RegExp(r'[<>:"/\\|?*]');
+  static String? _validateName(String name, {bool isFolder = false}) {
+    if (name.trim().isEmpty) return 'Please enter a ${isFolder ? 'folder' : 'file'} name';
+    if (_invalidNameChars.hasMatch(name)) return 'Name cannot contain < > : " / \\ | ? *';
+    return null;
+  }
+
   String _currentRoute = 'dashboard';
   String _searchQuery = '';
   String _currentFilesPath = '/';
@@ -238,10 +245,10 @@ class _HomeShellState extends State<HomeShell> {
               autofocus: true,
               decoration: InputDecoration(hintText: 'Folder name', errorText: errorText),
               onSubmitted: (v) {
+                final err = _validateName(v, isFolder: true);
+                if (err != null) { setDialogState(() => errorText = err); return; }
                 final val = v.trim();
-                if (val.isEmpty) {
-                  setDialogState(() => errorText = 'Please enter a folder name');
-                } else if (existingItems.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
+                if (existingItems.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
                   setDialogState(() => errorText = '"$val" already exists');
                 } else {
                   Navigator.pop(ctx, val);
@@ -251,10 +258,10 @@ class _HomeShellState extends State<HomeShell> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
               ElevatedButton(onPressed: () {
+                final err = _validateName(controller.text, isFolder: true);
+                if (err != null) { setDialogState(() => errorText = err); return; }
                 final val = controller.text.trim();
-                if (val.isEmpty) {
-                  setDialogState(() => errorText = 'Please enter a folder name');
-                } else if (existingItems.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
+                if (existingItems.any((f) => f.name.toLowerCase() == val.toLowerCase())) {
                   setDialogState(() => errorText = '"$val" already exists');
                 } else {
                   Navigator.pop(ctx, val);
@@ -322,11 +329,9 @@ class _HomeShellState extends State<HomeShell> {
                     errorText: errorText,
                   ),
                   onSubmitted: (_) {
-                    if (nameController.text.trim().isEmpty) {
-                      setDialogState(() => errorText = 'Please enter a file name');
-                    } else {
-                      Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
-                    }
+                    final err = _validateName(nameController.text);
+                    if (err != null) { setDialogState(() => errorText = err); return; }
+                    Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
                   },
                 ),
               ],
@@ -335,11 +340,9 @@ class _HomeShellState extends State<HomeShell> {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
               ElevatedButton(
                 onPressed: () {
-                  if (nameController.text.trim().isEmpty) {
-                    setDialogState(() => errorText = 'Please enter a file name');
-                  } else {
-                    Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
-                  }
+                  final err = _validateName(nameController.text);
+                  if (err != null) { setDialogState(() => errorText = err); return; }
+                  Navigator.pop(ctx, {'name': nameController.text.trim(), 'ext': selectedType});
                 },
                 child: const Text('Create'),
               ),

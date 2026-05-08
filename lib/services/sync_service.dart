@@ -172,6 +172,14 @@ class SyncService extends ChangeNotifier {
   String get status => _status;
   DateTime? get lastSync => _lastSync;
   String? get syncFolderPath => _syncFolderPath;
+
+  /// Remove a file from the sync journal (called when deleting via app UI)
+  void removeFromJournal(String remotePath) {
+    _journal.remove(remotePath);
+    // Also remove child entries for directories
+    _journal.removeWhere((key, _) => key.startsWith('$remotePath/'));
+    _saveJournal();
+  }
   String get remoteSyncPath => _remoteSyncPath;
   List<String> get log => List.unmodifiable(_log);
 

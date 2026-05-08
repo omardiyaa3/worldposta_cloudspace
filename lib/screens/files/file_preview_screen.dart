@@ -400,10 +400,10 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
           if (_isText && _bytes != null && (widget.file.permissions?.contains('W') ?? true))
             IconButton(
               icon: Icon(
-                _isEditing ? Icons.visibility : Icons.edit,
+                _isEditing ? Icons.edit_off : Icons.edit,
                 color: _isEditing ? AppColors.green800 : AppColors.azure47,
               ),
-              tooltip: _isEditing ? 'Read-only' : 'Edit',
+              tooltip: _isEditing ? 'Stop editing' : 'Edit file',
               onPressed: () {
                 setState(() {
                   _isEditing = !_isEditing;
