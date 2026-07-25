@@ -7,8 +7,11 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
   flutter_inappwebview_windows
   flutter_secure_storage_windows
+  screen_retriever_windows
   syncfusion_pdfviewer_windows
+  tray_manager
   url_launcher_windows
+  window_manager
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

@@ -18,7 +18,9 @@ SignTool=signtool
 SignedUninstaller=yes
 
 [Files]
-Source: "Release\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion sign
+Source: "Release\*.exe"; DestDir: "{app}"; Flags: ignoreversion sign
+Source: "Release\*.dll"; DestDir: "{app}"; Flags: ignoreversion sign
+Source: "Release\data\*"; DestDir: "{app}\data"; Flags: recursesubdirs ignoreversion
 
 [Icons]
 Name: "{group}\CloudSpace"; Filename: "{app}\CloudSpace.exe"

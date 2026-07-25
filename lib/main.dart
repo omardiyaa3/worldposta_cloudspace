@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,32 +5,26 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
+
 import 'config/theme.dart';
-import 'services/account_manager.dart';
-import 'services/auth_service.dart';
-import 'services/data_cache_service.dart';
-import 'services/sync_service.dart';
-import 'screens/auth/login_screen.dart';
-import 'screens/home_shell.dart';
+import 'services/drive/drive_account_manager.dart';
+import 'services/drive/drive_account_stores.dart';
+import 'services/drive/drive_cache.dart';
+import 'services/drive/drive_sync_service.dart';
+import 'screens/auth/drive_login_screen.dart';
+import 'screens/drive/drive_home_shell.dart';
 
 final bool _isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
-
 bool _startMinimized = false;
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-
   HttpOverrides.global = _CloudSpaceHttpOverrides();
-
   _startMinimized = args.contains('--minimized');
 
   if (_isDesktop) {
     await windowManager.ensureInitialized();
-    const windowOptions = WindowOptions(
-      size: Size(1100, 750),
-      minimumSize: Size(400, 300),
-      title: 'CloudSpace',
-    );
+    const windowOptions = WindowOptions(size: Size(1100, 750), minimumSize: Size(400, 300), title: 'CloudSpace');
     await windowManager.waitUntilReadyToShow(windowOptions, () async {
       await windowManager.setPreventClose(true);
       if (_startMinimized) {
@@ -46,106 +39,31 @@ void main(List<String> args) async {
   runApp(const CloudSpaceApp());
 }
 
+/// Accept the Drive's TLS cert on worldposta hosts (covers self-signed dev).
 class _CloudSpaceHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
     return super.createHttpClient(context)
-      ..badCertificateCallback = (X509Certificate cert, String host, int port) {
-        return host.contains('worldposta.com');
-      };
-  }
-}
-
-/// Lightweight AuthService wrapper for a single account (used by background syncs).
-class _AccountAuthService extends AuthService {
-  final Account _account;
-  _AccountAuthService(this._account);
-
-  @override String? get serverUrl => _account.serverUrl;
-  @override String? get username => _account.username;
-  @override String? get userId => _account.userId;
-  @override String? get appPassword => _account.appPassword;
-  @override String? get displayName => _account.displayName;
-  @override bool get isLoggedIn => true;
-  @override bool get isLoading => false;
-  @override String get basicAuth {
-    final credentials = base64Encode(utf8.encode('${_account.username}:${_account.appPassword}'));
-    return 'Basic $credentials';
-  }
-  @override Future<void> init() async {}
-}
-
-/// Bridge that prefers AccountManager credentials, falls back to AuthService.
-class AuthBridge extends AuthService {
-  final AccountManager _mgr;
-  final AuthService _real;
-
-  AuthBridge(this._mgr, this._real);
-
-  @override
-  String? get serverUrl => _mgr.isLoggedIn ? _mgr.serverUrl : _real.serverUrl;
-  @override
-  String? get username => _mgr.isLoggedIn ? _mgr.username : _real.username;
-  @override
-  String? get userId => _mgr.isLoggedIn ? _mgr.userId : _real.userId;
-  @override
-  String? get appPassword => _mgr.isLoggedIn ? _mgr.appPassword : _real.appPassword;
-  @override
-  String? get displayName => _mgr.isLoggedIn ? _mgr.displayName : _real.displayName;
-  @override
-  bool get isLoggedIn => _mgr.isLoggedIn || _real.isLoggedIn;
-  @override
-  bool get isLoading => _real.isLoading;
-  @override
-  String get basicAuth => _mgr.isLoggedIn ? _mgr.basicAuth : _real.basicAuth;
-
-  // Access the real AuthService's credentials (for after login, before AccountManager is updated)
-  String? get realServerUrl => _real.serverUrl;
-  String? get realUsername => _real.username;
-  String? get realUserId => _real.userId;
-  String? get realAppPassword => _real.appPassword;
-  String? get realDisplayName => _real.displayName;
-
-  // Delegate login flow methods to the real AuthService
-  @override
-  Future<LoginFlowResult> initiateLoginFlow({String? serverUrl}) =>
-      _real.initiateLoginFlow(serverUrl: serverUrl);
-  @override
-  Future<bool> pollLoginFlow(LoginFlowResult flow) => _real.pollLoginFlow(flow);
-  @override
-  Future<bool> loginWithCredentials({required String serverUrl, required String username, required String password}) =>
-      _real.loginWithCredentials(serverUrl: serverUrl, username: username, password: password);
-  @override
-  Future<void> init() => _real.init();
-  @override
-  Future<void> logout() async {
-    await _real.logout();
-    if (_mgr.isLoggedIn) {
-      await _mgr.logoutCurrent();
-    }
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) => host.contains('worldposta.com');
   }
 }
 
 class CloudSpaceApp extends StatefulWidget {
   const CloudSpaceApp({super.key});
-
   @override
   State<CloudSpaceApp> createState() => _CloudSpaceAppState();
 }
 
 class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, WindowListener {
-  final _accountMgr = AccountManager();
-  final _authService = AuthService();
-  late final AuthBridge _bridge;
-  DataCacheService? _cache;
-  SyncService? _sync; // Active account's sync (shown in UI)
-  final Map<String, SyncService> _allSyncs = {}; // Per-account background syncs
+  final _accountMgr = DriveAccountManager(tokens: SecureTokenStore(), meta: PrefsAccountMetaStore());
+  DriveCache? _cache;
+  DriveSyncService? _sync;
+  String? _lastActiveId;
   bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
-    _bridge = AuthBridge(_accountMgr, _authService);
     if (_isDesktop) {
       trayManager.addListener(this);
       windowManager.addListener(this);
@@ -155,18 +73,39 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
 
   Future<void> _init() async {
     await _accountMgr.init();
-    await _authService.init();
-
-    debugPrint('Init done: accountMgr.isLoggedIn=${_accountMgr.isLoggedIn} auth.isLoggedIn=${_authService.isLoggedIn}');
-    debugPrint('Bridge: serverUrl=${_bridge.serverUrl} username=${_bridge.username} userId=${_bridge.userId}');
-
     _accountMgr.addListener(_onAuthChanged);
-    _authService.addListener(_onAuthChanged);
-    _setupBackgroundSyncs();
-    _setupServices();
+    _setupCache();
     if (_isDesktop) await _initTray();
     setState(() => _initialized = true);
   }
+
+  /// Rebind the cache + sync to the active account. Disposing the old services
+  /// before building new ones guarantees one account's data (and sync journal)
+  /// never lingers in another's session (isolation).
+  void _setupCache() {
+    final active = _accountMgr.activeAccount;
+    final activeId = active?.id;
+    if (active != null && (_cache == null || activeId != _lastActiveId)) {
+      _cache?.dispose();
+      _sync?.dispose();
+      _cache = DriveCache(_accountMgr.activeApi!)..init();
+      _sync = DriveSyncService(_accountMgr.activeApi!, active.id)..init();
+      _lastActiveId = activeId;
+    } else if (active == null) {
+      _cache?.dispose();
+      _sync?.dispose();
+      _cache = null;
+      _sync = null;
+      _lastActiveId = null;
+    }
+  }
+
+  void _onAuthChanged() {
+    _setupCache();
+    if (mounted) setState(() {});
+  }
+
+  // ── tray / window (desktop) ────────────────────────────────────────────────
 
   Future<String> _resolveTrayIcon() async {
     try {
@@ -175,146 +114,47 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
       final ext = Platform.isWindows ? 'ico' : 'png';
       final iconFile = File('${tempDir.path}/cloudspace_tray.$ext');
       if (Platform.isWindows) {
-        // Create a minimal .ico from the PNG data
-        final pngBytes = byteData.buffer.asUint8List();
-        final icoBytes = _pngToIco(pngBytes);
-        await iconFile.writeAsBytes(icoBytes);
+        await iconFile.writeAsBytes(_pngToIco(byteData.buffer.asUint8List()));
       } else {
         await iconFile.writeAsBytes(byteData.buffer.asUint8List());
       }
-      debugPrint('Tray icon written to: ${iconFile.path}');
       return iconFile.path;
-    } catch (e) {
-      debugPrint('Failed to resolve tray icon: $e');
+    } catch (_) {
       return 'assets/logo.png';
     }
   }
 
-  /// Wrap a PNG in a minimal ICO container for Windows tray.
-  List<int> _pngToIco(List<int> pngBytes) {
-    final size = pngBytes.length;
-    // ICO header: 6 bytes
-    // ICO dir entry: 16 bytes
-    // Then the PNG data
-    final ico = <int>[];
-    // Header: reserved=0, type=1(icon), count=1
-    ico.addAll([0, 0, 1, 0, 1, 0]);
-    // Dir entry: width=0(256), height=0(256), colors=0, reserved=0
-    ico.addAll([0, 0, 0, 0]);
-    // Planes=1 (little-endian 16-bit)
-    ico.addAll([1, 0]);
-    // Bits per pixel=32 (little-endian 16-bit)
-    ico.addAll([32, 0]);
-    // Size of PNG data (little-endian 32-bit)
-    ico.add(size & 0xFF);
-    ico.add((size >> 8) & 0xFF);
-    ico.add((size >> 16) & 0xFF);
-    ico.add((size >> 24) & 0xFF);
-    // Offset to PNG data = 6 + 16 = 22 (little-endian 32-bit)
+  List<int> _pngToIco(List<int> png) {
+    final size = png.length;
+    final ico = <int>[0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 32, 0];
+    ico.addAll([size & 0xFF, (size >> 8) & 0xFF, (size >> 16) & 0xFF, (size >> 24) & 0xFF]);
     ico.addAll([22, 0, 0, 0]);
-    // PNG data
-    ico.addAll(pngBytes);
+    ico.addAll(png);
     return ico;
   }
 
   Future<void> _initTray() async {
     try {
-      final iconPath = await _resolveTrayIcon();
-      // isTemplate: false — show the actual colored logo, not a monochrome silhouette
-      await trayManager.setIcon(iconPath, isTemplate: false);
-      await trayManager.setToolTip('CloudSpace — Syncing your files');
-      final menu = Menu(items: [
-        MenuItem(label: 'Show CloudSpace', onClick: (_) async {
-          await windowManager.show();
-          await windowManager.focus();
-        }),
+      await trayManager.setIcon(await _resolveTrayIcon(), isTemplate: false);
+      await trayManager.setToolTip('CloudSpace');
+      await trayManager.setContextMenu(Menu(items: [
+        MenuItem(label: 'Show CloudSpace', onClick: (_) async { await windowManager.show(); await windowManager.focus(); }),
         MenuItem.separator(),
         MenuItem(label: 'Quit', onClick: (_) async {
           await trayManager.destroy();
           await windowManager.setPreventClose(false);
           await windowManager.close();
         }),
-      ]);
-      await trayManager.setContextMenu(menu);
-      debugPrint('Tray initialized successfully');
-    } catch (e) {
-      debugPrint('Failed to initialize tray: $e');
-    }
-  }
-
-  // Tray icon clicked → show window
-  @override
-  void onTrayIconMouseDown() async {
-    await windowManager.show();
-    await windowManager.focus();
+      ]));
+    } catch (_) {}
   }
 
   @override
-  void onTrayIconRightMouseDown() async {
-    await trayManager.popUpContextMenu();
-  }
-
-  // Window close → hide to tray instead of quitting
+  void onTrayIconMouseDown() async { await windowManager.show(); await windowManager.focus(); }
   @override
-  void onWindowClose() async {
-    await windowManager.hide();
-  }
-
-  String? _lastActiveAccountId;
-
-  void _onAuthChanged() {
-    _setupBackgroundSyncs();
-    _setupServices();
-    setState(() {});
-  }
-
-  void _setupServices() {
-    final isLoggedIn = _bridge.isLoggedIn;
-    final currentId = _accountMgr.activeAccount?.id;
-
-    if (isLoggedIn && (_cache == null || currentId != _lastActiveAccountId)) {
-      // Dispose old active-account services
-      _cache?.dispose();
-      _cache = DataCacheService(_bridge)..init();
-      // Point _sync to this account's background sync (or create it)
-      _sync = _allSyncs[currentId];
-      _lastActiveAccountId = currentId;
-    } else if (!isLoggedIn) {
-      _cache?.dispose();
-      _cache = null;
-      _sync = null;
-      _lastActiveAccountId = null;
-    }
-  }
-
-  /// Ensure every account has a SyncService running in the background.
-  void _setupBackgroundSyncs() {
-    final accounts = _accountMgr.accounts;
-    final currentIds = accounts.map((a) => a.id).toSet();
-
-    // Remove syncs for deleted accounts
-    for (final id in _allSyncs.keys.toList()) {
-      if (!currentIds.contains(id)) {
-        _allSyncs[id]?.dispose();
-        _allSyncs.remove(id);
-      }
-    }
-
-    // Create syncs for new accounts
-    for (final account in accounts) {
-      if (!_allSyncs.containsKey(account.id)) {
-        final auth = _AccountAuthService(account);
-        final sync = SyncService(auth)..init();
-        _allSyncs[account.id] = sync;
-      }
-    }
-
-    // Update _sync pointer to active account
-    final activeId = _accountMgr.activeAccount?.id;
-    if (activeId != null) {
-      _sync = _allSyncs[activeId];
-    }
-  }
+  void onTrayIconRightMouseDown() async { await trayManager.popUpContextMenu(); }
+  @override
+  void onWindowClose() async { await windowManager.hide(); }
 
   @override
   void dispose() {
@@ -323,41 +163,31 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
       windowManager.removeListener(this);
     }
     _accountMgr.removeListener(_onAuthChanged);
-    _authService.removeListener(_onAuthChanged);
     _cache?.dispose();
-    for (final s in _allSyncs.values) { s.dispose(); }
-    _allSyncs.clear();
+    _sync?.dispose();
     _accountMgr.dispose();
-    _authService.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_initialized) {
-      return const MaterialApp(
-        home: Scaffold(body: Center(child: CircularProgressIndicator())),
-      );
+      return const MaterialApp(home: Scaffold(body: Center(child: CircularProgressIndicator())));
     }
-
-    final isLoggedIn = _bridge.isLoggedIn;
-
+    final loggedIn = _accountMgr.isLoggedIn;
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider.value(value: _accountMgr),
-        // Provide bridge AS AuthService — all reads get correct active account credentials
-        ChangeNotifierProvider<AuthService>.value(value: _bridge),
-        if (_cache != null) ChangeNotifierProvider.value(value: _cache!),
-        if (_sync != null) ChangeNotifierProvider.value(value: _sync!),
+        ChangeNotifierProvider<DriveAccountManager>.value(value: _accountMgr),
+        if (_cache != null) ChangeNotifierProvider<DriveCache>.value(value: _cache!),
+        if (_sync != null) ChangeNotifierProvider<DriveSyncService>.value(value: _sync!),
       ],
       child: MaterialApp(
         title: 'CloudSpace',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
-        // Key forces full rebuild when account switches, so all widgets pick up new providers
-        home: isLoggedIn
-            ? HomeShell(key: ValueKey(_lastActiveAccountId))
-            : const LoginScreen(),
+        // Key on the active account so the whole tree rebuilds on switch and no
+        // widget keeps a stale account's state.
+        home: loggedIn ? DriveHomeShell(key: ValueKey(_lastActiveId)) : const DriveLoginScreen(),
       ),
     );
   }
