@@ -48,15 +48,17 @@ class DriveDesktopSso {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     try {
       final callback = 'http://127.0.0.1:${server.port}/callback';
-      // Login URL the backend redirects to when the browser has no Drive session
-      // yet. The backend only honours *.worldposta.com https URLs (open-redirect
-      // guard); after login the browser returns to /auth/desktop with the cookie.
-      final loginUrl = '${DriveConstants.ssoAuthUrl}/login';
+      // Route THROUGH the SSO login with return_to pointing at the Drive's desktop
+      // endpoint. The app builds that endpoint URL itself, so it keeps the correct
+      // host:port (a reverse proxy strips :2023 from the backend's own Host header,
+      // so we must NOT let the backend reconstruct the return URL). After signing
+      // in, the browser lands on /auth/desktop already carrying the wp_session
+      // cookie → the backend mints a dk_ token and 302s to our loopback callback.
+      final endpoint = '$base/api/v1/auth/desktop'
+          '?callback=${Uri.encodeQueryComponent(callback)}'
+          '&state=$state';
       final authUrl = Uri.parse(
-        '$base/api/v1/auth/desktop'
-        '?callback=${Uri.encodeQueryComponent(callback)}'
-        '&state=$state'
-        '&login=${Uri.encodeQueryComponent(loginUrl)}',
+        '${DriveConstants.ssoAuthUrl}/login?return_to=${Uri.encodeQueryComponent(endpoint)}',
       );
 
       final launched = await launchUrl(authUrl, mode: LaunchMode.externalApplication);
