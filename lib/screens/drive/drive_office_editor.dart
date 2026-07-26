@@ -6,6 +6,8 @@
 // authorises the WOPI protocol calls, so no cookies are needed. Falls back to
 // opening the URL in the system browser (the URL is portable).
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart' as inapp;
 import 'package:provider/provider.dart';
@@ -29,6 +31,11 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
   String? _error;
   bool _loadingUrl = true;
   bool _pageLoading = true;
+  bool _opened = false; // Windows: launched in the external browser
+
+  // Windows webviews (WebView2) are unreliable — open Collabora in the real
+  // browser. The WOPI URL is self-contained (token embedded), so it just works.
+  bool get _useBrowser => Platform.isWindows;
 
   @override
   void initState() {
@@ -41,7 +48,9 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
     try {
       final api = context.read<DriveAccountManager>().activeApi!;
       final res = await api.wopiEditUrl(widget.file.id);
-      if (mounted) setState(() { _url = res.url; _loadingUrl = false; });
+      if (!mounted) return;
+      setState(() { _url = res.url; _loadingUrl = false; });
+      if (_useBrowser) await _openInBrowser();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -60,6 +69,7 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
     if (_url == null) return;
     try {
       await launchUrl(Uri.parse(_url!), mode: LaunchMode.externalApplication);
+      if (mounted) setState(() => _opened = true);
     } catch (_) {}
   }
 
@@ -85,6 +95,8 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
             ]))
           : _error != null
               ? _errorView()
+              : _useBrowser
+              ? _browserView()
               : Stack(children: [
                   inapp.InAppWebView(
                     initialUrlRequest: inapp.URLRequest(url: inapp.WebUri(_url!)),
@@ -109,6 +121,35 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
                 ]),
     );
   }
+
+  Widget _browserView() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.open_in_browser, size: 56, color: AppColors.green700),
+            const SizedBox(height: 16),
+            Text(
+              _opened
+                  ? '“${widget.file.name}” is open in your browser.\nEdits save back to your Drive automatically.'
+                  : 'Ready to open in your browser.',
+              style: const TextStyle(color: AppColors.body, fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: _openInBrowser,
+              icon: const Icon(Icons.open_in_browser, size: 18),
+              label: Text(_opened ? 'Re-open in browser' : 'Open in browser'),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.green800, foregroundColor: AppColors.white),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text('Done', style: TextStyle(color: AppColors.muted)),
+            ),
+          ]),
+        ),
+      );
 
   Widget _errorView() => Center(
         child: Padding(

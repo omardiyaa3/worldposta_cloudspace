@@ -212,7 +212,12 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
           TextButton.icon(
             onPressed: () {
               Navigator.pop(ctx);
-              Navigator.of(context).push(MaterialPageRoute(builder: (_) => DriveLoginScreen(onSignedIn: () => Navigator.of(context).maybePop())));
+              // Capture the root NavigatorState BEFORE pushing: adding an account
+              // rebuilds `home` with a new key, which deactivates this widget's
+              // context. Popping via a captured NavigatorState (it lives above
+              // `home`, so it survives the rebuild) avoids a null-check crash.
+              final nav = Navigator.of(context, rootNavigator: true);
+              nav.push(MaterialPageRoute(builder: (_) => DriveLoginScreen(onSignedIn: () => nav.maybePop())));
             },
             icon: const Icon(Icons.person_add, size: 16, color: AppColors.green800),
             label: const Text('Add Account', style: TextStyle(color: AppColors.green800)),

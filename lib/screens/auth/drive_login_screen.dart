@@ -5,6 +5,8 @@
 // The user pastes it here; we validate it against GET /me via
 // DriveAccountManager and store it in the OS keystore.
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +16,7 @@ import '../../config/drive_constants.dart';
 import '../../config/theme.dart';
 import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_client.dart';
+import '../../services/drive/drive_desktop_sso.dart';
 import 'drive_sso_login_screen.dart';
 
 class DriveLoginScreen extends StatefulWidget {
@@ -33,15 +36,43 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
   bool _showToken = false;
   String? _error;
 
-  void _ssoLogin() {
+  Future<void> _ssoLogin() async {
     final server = _serverController.text.trim();
     if (server.isEmpty) {
       setState(() => _error = 'Enter your Drive server URL.');
       return;
     }
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => DriveSsoLoginScreen(serverUrl: server, onSignedIn: widget.onSignedIn),
-    ));
+    // Windows: embedded webviews (WebView2) are unreliable, so sign in through
+    // the user's real browser + a loopback redirect. macOS/other keep the fast
+    // embedded webview, which works well there.
+    if (!Platform.isWindows) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => DriveSsoLoginScreen(serverUrl: server, onSignedIn: widget.onSignedIn),
+      ));
+      return;
+    }
+    final mgr = context.read<DriveAccountManager>();
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final token = await DriveDesktopSso.signIn(server);
+      await mgr.addAccountFromToken(serverUrl: server, token: token);
+      if (mounted) widget.onSignedIn?.call();
+    } on DesktopSsoException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on DriveException catch (e) {
+      if (mounted) {
+        setState(() => _error = e.isAuth
+            ? 'Sign-in was rejected by the server. Please try again.'
+            : 'Sign-in failed: ${e.message}');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Could not complete sign-in. Please try again.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
