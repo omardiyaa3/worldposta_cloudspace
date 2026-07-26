@@ -294,6 +294,10 @@ class DriveSyncService extends ChangeNotifier {
   Future<Map<String, LocalStat>> _scanLocal() async {
     final out = <String, LocalStat>{};
     final root = Directory(_folder!);
+    // The folder can be missing if it was deleted out from under us, or on a
+    // fresh mobile install where config is restored before the dir is created.
+    // Recreate it so the scan (and the sync) proceeds instead of throwing.
+    if (!await root.exists()) await root.create(recursive: true);
     await for (final e in root.list(recursive: true, followLinks: false)) {
       final rel = e.path.substring(root.path.length).replaceAll(Platform.pathSeparator, '/').replaceFirst(RegExp('^/'), '');
       final name = rel.split('/').last;

@@ -2,6 +2,8 @@
 // Sidebar (desktop) / drawer + bottom nav (mobile), top bar, and content
 // routing. Account switching/add/logout live in the profile menu.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -32,7 +34,38 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
   VoidCallback? _filesNewMenu; // opens the Files "New" menu
   bool _pendingNew = false; // "New" was pressed while not on Files yet
 
+  // Live search: the top-bar field is the single persistent input; typing swaps
+  // the content area to live results (debounced) instead of pushing a screen.
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  Timer? _searchDebounce;
+
+  void _onSearchChanged(String q) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      final trimmed = q.trim();
+      if (trimmed != _searchQuery) setState(() => _searchQuery = trimmed);
+    });
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    if (_searchQuery.isNotEmpty) setState(() => _searchQuery = '');
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Widget _content() {
+    if (_searchQuery.isNotEmpty) {
+      return DriveSearchResults(query: _searchQuery);
+    }
     switch (_route) {
       case 'files':
         return DriveFilesScreen(
@@ -121,6 +154,7 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
       totalBytes: cache.totalBytes,
       onNewPressed: _onNew,
       onNavigate: (r) {
+        _clearSearch();
         setState(() => _route = r);
         if (!isWide) Navigator.maybePop(context);
       },
@@ -134,13 +168,11 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
           child: Column(children: [
             TopBar(
               displayName: mgr.activeAccount?.displayName,
+              searchController: _searchController,
               onSettingsTap: () => setState(() => _route = 'settings'),
               onProfileTap: () => _profileMenu(context, mgr),
               onRefreshTap: () => _filesRefresh?.call() ?? cache.refresh(),
-              onSearch: (q) {
-                if (q.trim().isEmpty) return;
-                Navigator.of(context).push(MaterialPageRoute(builder: (_) => DriveSearchScreen(query: q.trim())));
-              },
+              onSearch: _onSearchChanged,
             ),
             if (cache.quotaWarningLevel == 'critical')
               Container(
@@ -162,7 +194,7 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
           ? null
           : BottomNavigationBar(
               currentIndex: const ['dashboard', 'files', 'shared', 'starred', 'trash'].indexOf(_route).clamp(0, 4),
-              onTap: (i) => setState(() => _route = ['dashboard', 'files', 'shared', 'starred', 'trash'][i]),
+              onTap: (i) { _clearSearch(); setState(() => _route = ['dashboard', 'files', 'shared', 'starred', 'trash'][i]); },
               type: BottomNavigationBarType.fixed,
               selectedItemColor: AppColors.green800,
               unselectedItemColor: AppColors.muted,

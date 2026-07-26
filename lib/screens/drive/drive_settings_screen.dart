@@ -18,14 +18,49 @@ class DriveSettingsScreen extends StatelessWidget {
   Future<void> _pickFolder(BuildContext context, DriveSyncService sync) async {
     String? path;
     if (Platform.isIOS || Platform.isAndroid) {
+      // Mobile apps are sandboxed — there's no system folder browser to pick an
+      // arbitrary directory. CloudSpace syncs to its own folder, which iOS exposes
+      // in the Files app (On My iPhone → CloudSpace) and Android under the app's
+      // storage. Confirm first so the button gives clear feedback.
+      final where = Platform.isIOS
+          ? 'the Files app under “On My iPhone → CloudSpace”'
+          : 'your device’s CloudSpace app folder';
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Sync folder'),
+          content: Text(
+            'On this device, apps can’t sync to an arbitrary folder. CloudSpace will '
+            'sync to its own folder — you can open it in $where.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.green700, foregroundColor: AppColors.white),
+              child: const Text('Enable Sync'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
       final dir = await getApplicationDocumentsDirectory();
       path = '${dir.path}/CloudSpace';
     } else {
       path = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Choose a local folder to sync');
     }
     if (path == null) return;
-    await sync.setFolder(path);
-    sync.start();
+    try {
+      await sync.setFolder(path);
+      sync.start();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not start sync: $e'), backgroundColor: AppColors.filePdf),
+        );
+      }
+      return;
+    }
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Syncing ${path.split(Platform.pathSeparator).last} ↔ Drive'), backgroundColor: AppColors.green700),

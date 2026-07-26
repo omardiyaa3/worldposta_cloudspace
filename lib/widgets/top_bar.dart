@@ -9,6 +9,9 @@ class TopBar extends StatefulWidget {
   final VoidCallback? onProfileTap;
   final VoidCallback? onRefreshTap;
   final ValueChanged<String>? onSearch;
+  /// Optional shell-owned controller so the parent can read/clear the query
+  /// (e.g. clear search when navigating away). Falls back to an internal one.
+  final TextEditingController? searchController;
 
   const TopBar({
     super.key,
@@ -19,6 +22,7 @@ class TopBar extends StatefulWidget {
     this.onProfileTap,
     this.onRefreshTap,
     this.onSearch,
+    this.searchController,
   });
 
   @override
@@ -27,11 +31,12 @@ class TopBar extends StatefulWidget {
 
 class _TopBarState extends State<TopBar> {
   bool _searchExpanded = false;
-  final _searchController = TextEditingController();
+  late final TextEditingController _searchController = widget.searchController ?? TextEditingController();
+  bool get _ownsController => widget.searchController == null;
 
   @override
   void dispose() {
-    _searchController.dispose();
+    if (_ownsController) _searchController.dispose();
     super.dispose();
   }
 
