@@ -22,11 +22,11 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
-      - name: Bundle VC++ runtime DLLs and Media Foundation DLLs
+      - name: Bundle VC++ runtime DLLs
         run: |
           $releaseDir = "build/windows/x64/runner/Release"
           $sysDir = "C:\Windows\System32"
-          # VC++ runtime
+          # VC++ runtime (redistributable — safe to bundle)
           $dlls = @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140_1.dll")
           foreach ($dll in $dlls) {
             $src = Join-Path $sysDir $dll
@@ -35,17 +35,11 @@ jobs:
               Write-Host "Copied $dll"
             }
           }
-          # Media Foundation DLLs (needed by audioplayers; missing on Windows N/KN)
-          $mfDlls = @("MFPlat.DLL", "MFReadWrite.dll", "MF.dll")
-          foreach ($dll in $mfDlls) {
-            $src = Join-Path $sysDir $dll
-            if (Test-Path $src) {
-              Copy-Item $src $releaseDir -Force
-              Write-Host "Copied $dll"
-            } else {
-              Write-Host "WARNING: $dll not found on build machine"
-            }
-          }
+          # NOTE: Do NOT bundle Media Foundation DLLs (MFPlat.DLL, MFReadWrite.dll, MF.dll).
+          # These are Windows system components tightly coupled to the OS build. The runner's
+          # copy depends on newer VC++ symbols (e.g. __CxxFrameHandler4) that may be absent on
+          # the target machine, causing a launch crash. The app must load the machine's own
+          # Media Foundation. Windows N/KN users install the "Media Feature Pack" if needed.
 
       - name: Download prerequisites
         run: |
