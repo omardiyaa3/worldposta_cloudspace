@@ -229,8 +229,9 @@ class DriveClient {
     }
     final uploadUri = Uri.parse(location);
 
-    // 2. PATCH 5 MiB chunks.
-    const chunkSize = 5 * 1024 * 1024;
+    // 2. PATCH in 1 MiB chunks. Progress is reported per chunk (per real network
+    // round-trip), so smaller chunks give a smoother, honest progress bar.
+    const chunkSize = 1 * 1024 * 1024;
     final raf = await file.open(mode: FileMode.read);
     try {
       int offset = 0;

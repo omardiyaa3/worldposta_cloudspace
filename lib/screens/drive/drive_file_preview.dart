@@ -435,7 +435,9 @@ class _DriveFilePreviewState extends State<DriveFilePreview> {
           ElevatedButton.icon(
             onPressed: () => Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => DriveOfficeEditor(file: widget.file))),
             icon: const Icon(Icons.open_in_new, size: 18),
-            label: const Text('Edit in Office Online'),
+            // Viewers get read-only Office Online (WOPI enforces it server-side) —
+            // don't mislabel it "Edit".
+            label: Text(widget.file.writable ? 'Edit in Office Online' : 'Open in Office Online'),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.green800, foregroundColor: AppColors.white),
           ),
         ]),

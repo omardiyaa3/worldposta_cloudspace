@@ -72,6 +72,13 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   bool get _isTrash => widget.mode == DriveViewMode.trash;
   bool get _isFiles => widget.mode == DriveViewMode.files;
 
+  // Permission helpers. For items you own (your own Files/Recent/Starred) the
+  // server sends no role → myRole/canEdit are null → treat as owner (all actions).
+  // For items shared WITH you, they reflect your granted role, so we hide actions
+  // your role can't perform (e.g. a viewer sees no rename/move/delete/share).
+  bool _canWrite(DriveFile f) => f.canEdit ?? true; // editor+  → rename/move/delete
+  bool _canManage(DriveFile f) => (f.myRole?.rank ?? 99) >= DriveRole.manager.rank; // manager+ → share/expiration
+
   @override
   void initState() {
     super.initState();
@@ -129,6 +136,15 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     if (mounted) setState(() => _error = null);
     try {
       List<DriveFile> items;
+      // Once drilled into a folder (from ANY mode — e.g. opening a folder that's
+      // shared with you), list that folder's contents by parent id rather than the
+      // mode-specific list. The server enforces visibility, so you only see what
+      // you're allowed to.
+      if (!_isFiles && _parentId != null) {
+        items = await _cache.getFolder(_parentId);
+        if (mounted) setState(() { _files = _sorted(items); _loading = false; });
+        return;
+      }
       switch (widget.mode) {
         case DriveViewMode.files:
           items = await _cache.getFolder(_parentId);
@@ -220,16 +236,21 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   }
 
   Future<void> _openFolder(DriveFile folder) async {
+    final append = [..._crumbs, DrivePathNode(id: folder.id, name: folder.name, isDirectory: true)];
     setState(() {
       _parentId = folder.id;
+      _crumbs = append;
       _files = [];
       _loading = true;
     });
-    // Breadcrumbs from the server (authoritative, trims to visible ancestors).
-    try {
-      _crumbs = await _api.filePath(folder.id);
-    } catch (_) {
-      _crumbs = [...(_crumbs), DrivePathNode(id: folder.id, name: folder.name, isDirectory: true)];
+    // In Files mode use the server path (authoritative, trims to visible
+    // ancestors). In other modes (Shared/Recent/Starred) the server path would
+    // reference the owner's tree, which you can't navigate, so we just append the
+    // opened folder to the local trail (rooted at the mode's list).
+    if (_isFiles) {
+      try {
+        _crumbs = await _api.filePath(folder.id);
+      } catch (_) {/* keep the appended trail */}
     }
     await _load();
   }
@@ -410,6 +431,40 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     await _cache.refreshStarred();
     setState(() => _selected.clear());
     await _refresh();
+  }
+
+  void _selectAll() => setState(() => _selected
+    ..clear()
+    ..addAll(_files.map((f) => f.id)));
+
+  Future<void> _bulkPurge() async {
+    final sel = _selectedFiles;
+    if (sel.isEmpty) return;
+    final ok = await _confirm('Permanently delete ${sel.length} item${sel.length == 1 ? '' : 's'}?', 'This cannot be undone.', 'Delete forever');
+    if (!ok) return;
+    for (final f in sel) { try { await _api.purgeTrash(f.id); } catch (_) {} }
+    setState(() { _files.removeWhere((f) => _selected.contains(f.id)); _selected.clear(); });
+    _snack('${sel.length} permanently deleted');
+  }
+
+  Future<void> _bulkRestore() async {
+    final sel = _selectedFiles;
+    if (sel.isEmpty) return;
+    for (final f in sel) { try { await _api.restoreTrash(f.id); } catch (_) {} }
+    setState(() { _files.removeWhere((f) => _selected.contains(f.id)); _selected.clear(); });
+    _snack('${sel.length} restored');
+  }
+
+  Future<void> _emptyTrash() async {
+    if (_files.isEmpty) return;
+    final n = _files.length;
+    final ok = await _confirm('Empty trash?', 'Permanently delete all $n item${n == 1 ? '' : 's'}. This cannot be undone.', 'Empty Trash');
+    if (!ok) return;
+    setState(() => _busy = true);
+    final ids = _files.map((f) => f.id).toList();
+    for (final id in ids) { try { await _api.purgeTrash(id); } catch (_) {} }
+    if (mounted) setState(() { _files.clear(); _selected.clear(); _busy = false; });
+    _snack('Trash emptied');
   }
 
   Future<void> _rename(DriveFile f) async {
@@ -720,13 +775,24 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
       color: AppColors.greenActiveBg,
       child: Row(children: [
         Text('${sel.length} selected', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.heading)),
+        const SizedBox(width: 12),
+        TextButton(
+          onPressed: sel.length == _files.length ? () => setState(() => _selected.clear()) : _selectAll,
+          style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 0), tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+          child: Text(sel.length == _files.length ? 'Clear all' : 'Select all', style: const TextStyle(fontSize: 12, color: AppColors.green700, fontWeight: FontWeight.w600)),
+        ),
         const Spacer(),
         if (!_isTrash) IconButton(icon: const Icon(Icons.star_outline, size: 20, color: AppColors.heading), tooltip: 'Star', onPressed: _bulkStar, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
         if (sel.any((f) => !f.isDirectory)) ...[
           const SizedBox(width: 12),
           IconButton(icon: const Icon(Icons.download, size: 20, color: AppColors.heading), tooltip: 'Download', onPressed: _bulkDownload, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
         ],
-        if (!_isTrash) ...[
+        if (_isTrash) ...[
+          const SizedBox(width: 12),
+          IconButton(icon: const Icon(Icons.restore, size: 20, color: AppColors.green700), tooltip: 'Restore', onPressed: _bulkRestore, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+          const SizedBox(width: 12),
+          IconButton(icon: const Icon(Icons.delete_forever, size: 20, color: AppColors.filePdf), tooltip: 'Delete forever', onPressed: _bulkPurge, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+        ] else ...[
           const SizedBox(width: 12),
           IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.filePdf), tooltip: 'Delete', onPressed: _bulkDelete, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
         ],
@@ -774,11 +840,19 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
       child: Row(children: [
-        Expanded(child: _isFiles ? _breadcrumb() : Text(_title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.heading))),
-        if (widget.mode == DriveViewMode.shared) ...[
+        Expanded(child: (_isFiles || _parentId != null) ? _breadcrumb() : Text(_title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.heading))),
+        if (widget.mode == DriveViewMode.shared && _parentId == null) ...[
           _toggleChip('With me', !_showSharedByMe, () => setState(() { _showSharedByMe = false; _load(); })),
           const SizedBox(width: 6),
           _toggleChip('By me', _showSharedByMe, () => setState(() { _showSharedByMe = true; _load(); })),
+        ],
+        if (_isTrash && _files.isNotEmpty) ...[
+          TextButton.icon(
+            onPressed: _busy ? null : _emptyTrash,
+            icon: const Icon(Icons.delete_sweep_outlined, size: 18, color: AppColors.filePdf),
+            label: const Text('Empty Trash', style: TextStyle(color: AppColors.filePdf, fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 4),
         ],
         // Sort menu
         PopupMenuButton<_SortCol>(
@@ -851,7 +925,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
       child: Row(children: [
         InkWell(
           onTap: _navigateToRoot,
-          child: const Text('My Files', style: TextStyle(fontSize: 14, color: AppColors.green700, fontWeight: FontWeight.w500)),
+          child: Text(_isFiles ? 'My Files' : _title, style: const TextStyle(fontSize: 14, color: AppColors.green700, fontWeight: FontWeight.w500)),
         ),
         ..._crumbs.asMap().entries.map((e) {
           final last = e.key == _crumbs.length - 1;
@@ -969,18 +1043,18 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
       : [
           if (!f.isDirectory) const PopupMenuItem(value: 'open', child: Row(children: [Icon(Icons.open_in_new, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Open')])),
           if (!f.isDirectory) const PopupMenuItem(value: 'download', child: Row(children: [Icon(Icons.download, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Download')])),
-          const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
+          if (_canManage(f)) const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
           PopupMenuItem(value: 'star', child: Row(children: [Icon(f.isStarred ? Icons.star : Icons.star_outline, size: 16, color: f.isStarred ? AppColors.fileSketch : AppColors.body), const SizedBox(width: 8), Text(f.isStarred ? 'Unstar' : 'Star')])),
-          const PopupMenuItem(value: 'rename', child: Row(children: [Icon(Icons.edit, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Rename')])),
-          const PopupMenuItem(value: 'move', child: Row(children: [Icon(Icons.drive_file_move_outline, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Move to…')])),
+          if (_canWrite(f)) const PopupMenuItem(value: 'rename', child: Row(children: [Icon(Icons.edit, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Rename')])),
+          if (_canWrite(f)) const PopupMenuItem(value: 'move', child: Row(children: [Icon(Icons.drive_file_move_outline, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Move to…')])),
           if (!f.isDirectory) const PopupMenuItem(value: 'copy', child: Row(children: [Icon(Icons.copy_all_outlined, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Make a copy')])),
           const PopupMenuDivider(),
           if (!f.isDirectory) const PopupMenuItem(value: 'versions', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Version history')])),
           const PopupMenuItem(value: 'comments', child: Row(children: [Icon(Icons.comment_outlined, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Comments')])),
           const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history_toggle_off, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Activity')])),
-          const PopupMenuItem(value: 'expiration', child: Row(children: [Icon(Icons.event_busy, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Set expiration…')])),
-          const PopupMenuDivider(),
-          const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Delete', style: TextStyle(color: AppColors.filePdf))])),
+          if (_canManage(f)) const PopupMenuItem(value: 'expiration', child: Row(children: [Icon(Icons.event_busy, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Set expiration…')])),
+          if (_canWrite(f)) const PopupMenuDivider(),
+          if (_canWrite(f)) const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Delete', style: TextStyle(color: AppColors.filePdf))])),
         ];
 
   Widget _menu(DriveFile f) => PopupMenuButton<String>(
