@@ -71,6 +71,7 @@ List<SyncAction> reconcile({
   required Map<String, SyncJournalEntry> journal,
   ConflictPolicy conflict = ConflictPolicy.newestWins,
   SyncDirection direction = SyncDirection.twoWay,
+  void Function(String msg)? trace, // optional per-file diagnostic
 }) {
   final dirActions = <SyncAction>[];
   final fileActions = <SyncAction>[];
@@ -150,6 +151,13 @@ List<SyncAction> reconcile({
     // In journal.
     final remoteChanged = r != null && ((remoteMs - j.remoteUpdatedMs).abs() > remoteTol || r.sizeBytes != j.size);
     final localChanged = l != null && ((l.mtimeMs - j.localMtimeMs).abs() > localTol || l.size != j.size);
+
+    if (trace != null && (localChanged || remoteChanged)) {
+      trace('$p | localChanged=$localChanged remoteChanged=$remoteChanged | '
+          'lmtime=${l?.mtimeMs} jmtime=${j.localMtimeMs} | '
+          'lsize=${l?.size} jsize=${j.size} rsize=${r?.sizeBytes} | '
+          'rmtime=$remoteMs jrmtime=${j.remoteUpdatedMs}');
+    }
 
     if (r != null && l != null) {
       if (remoteChanged && localChanged) {

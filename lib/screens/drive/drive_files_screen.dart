@@ -63,8 +63,12 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   _SortCol _sortCol = _SortCol.name;
   bool _sortAsc = true;
   final Set<String> _selected = {};
-  bool get _selecting => _selected.isNotEmpty;
+  bool _selectMode = false; // header "Select" toggled on (checkboxes visible)
+  bool get _selecting => _selectMode || _selected.isNotEmpty;
   bool _dragging = false;
+
+  void _exitSelect() => setState(() { _selectMode = false; _selected.clear(); });
+  void _toggleSelectMode() => setState(() { if (_selectMode || _selected.isNotEmpty) { _selectMode = false; _selected.clear(); } else { _selectMode = true; } });
 
   DriveApi get _api => context.read<DriveAccountManager>().activeApi!;
   DriveCache get _cache => context.read<DriveCache>();
@@ -179,7 +183,20 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     }
   }
 
+  // Star state is client-side only (the file list doesn't return it), so mark
+  // items by cross-referencing the cached /starred set. The Starred view's own
+  // items are all starred by definition.
+  List<DriveFile> _markStarred(List<DriveFile> items) {
+    if (widget.mode == DriveViewMode.starred) {
+      return [for (final f in items) f.isStarred ? f : f.copyWith(isStarred: true)];
+    }
+    final ids = _cache.starredFiles.map((f) => f.id).toSet();
+    if (ids.isEmpty) return items;
+    return [for (final f in items) ids.contains(f.id) ? f.copyWith(isStarred: true) : f];
+  }
+
   List<DriveFile> _sorted(List<DriveFile> items) {
+    items = _markStarred(items);
     final list = List<DriveFile>.from(items);
     list.sort((a, b) {
       if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1; // dirs first
@@ -496,15 +513,27 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   }
 
   Future<void> _toggleStar(DriveFile f) async {
+    final nowStarred = !f.isStarred;
+    // Optimistic: star state is client-side only (the file list doesn't carry it),
+    // so update the row immediately for instant feedback rather than reloading.
+    void setStar(bool v) {
+      final i = _files.indexWhere((x) => x.id == f.id);
+      if (i >= 0) setState(() => _files[i] = _files[i].copyWith(isStarred: v));
+    }
+    setStar(nowStarred);
     try {
-      if (f.isStarred) {
-        await _api.unstar(f.id);
-      } else {
+      if (nowStarred) {
         await _api.star(f.id);
+      } else {
+        await _api.unstar(f.id);
       }
       await _cache.refreshStarred();
-      await _refresh();
+      // In the Starred view, an unstar removes the row.
+      if (widget.mode == DriveViewMode.starred && !nowStarred && mounted) {
+        setState(() => _files.removeWhere((x) => x.id == f.id));
+      }
     } catch (e) {
+      if (mounted) setStar(!nowStarred); // revert on failure
       _snack(_friendly(e), ok: false);
     }
   }
@@ -756,9 +785,13 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               const Icon(Icons.folder, size: 36, color: AppColors.green800),
-              if (f.isStarred) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: AppColors.fileSketch)),
               const Spacer(),
-              if (!_selecting) _menu(f),
+              if (_selecting)
+                Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked, size: 20, color: selected ? AppColors.green700 : AppColors.muted)
+              else ...[
+                _starButton(f),
+                _menu(f),
+              ],
             ]),
             const SizedBox(height: 8),
             Text(f.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.heading), maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -797,7 +830,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
           IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.filePdf), tooltip: 'Delete', onPressed: _bulkDelete, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
         ],
         const SizedBox(width: 12),
-        IconButton(icon: const Icon(Icons.close, size: 20, color: AppColors.muted), tooltip: 'Clear', onPressed: () => setState(() => _selected.clear()), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+        IconButton(icon: const Icon(Icons.close, size: 20, color: AppColors.muted), tooltip: 'Done', onPressed: _exitSelect, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
       ]),
     );
   }
@@ -854,6 +887,14 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
           ),
           const SizedBox(width: 4),
         ],
+        // Multi-select toggle — lets you pick several files and run bulk actions
+        // in any view (Files / Shared / Trash / Recent / Starred).
+        if (_files.isNotEmpty)
+          IconButton(
+            icon: Icon(_selecting ? Icons.close : Icons.checklist_rounded, size: 20, color: _selecting ? AppColors.filePdf : AppColors.azure47),
+            tooltip: _selecting ? 'Cancel selection' : 'Select',
+            onPressed: _toggleSelectMode,
+          ),
         // Sort menu
         PopupMenuButton<_SortCol>(
           icon: Icon(_sortAsc ? Icons.arrow_upward : Icons.arrow_downward, size: 18, color: AppColors.azure47),
@@ -972,14 +1013,23 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     ]);
   }
 
+  Widget _starButton(DriveFile f) => IconButton(
+        icon: Icon(f.isStarred ? Icons.star : Icons.star_border, size: 20, color: f.isStarred ? AppColors.fileSketch : AppColors.muted),
+        tooltip: f.isStarred ? 'Unstar' : 'Star',
+        onPressed: () => _toggleStar(f),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        visualDensity: VisualDensity.compact,
+      );
+
   Widget _row(DriveFile f) {
     final selected = _selected.contains(f.id);
     return GestureDetector(
-      onLongPress: _isTrash ? null : () => _toggleSelect(f.id),
+      onLongPress: () => _toggleSelect(f.id),
       onSecondaryTapUp: (d) => _showContextMenu(d.globalPosition, f),
       child: InkWell(
         onTap: _selecting
-            ? (_isTrash ? null : () => _toggleSelect(f.id))
+            ? () => _toggleSelect(f.id)
             : (_isTrash ? null : () => _open(f)),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
@@ -988,13 +1038,16 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
             border: const Border(bottom: BorderSide(color: AppColors.grey91, width: 0.5)),
           ),
           child: Row(children: [
+            if (_selecting) ...[
+              Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked, size: 22, color: selected ? AppColors.green700 : AppColors.muted),
+              const SizedBox(width: 10),
+            ],
             FileIcon(extension: f.extension, isDirectory: f.isDirectory, size: 32),
             const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
                 Flexible(child: Text(f.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.heading), overflow: TextOverflow.ellipsis)),
-                if (f.isStarred) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: AppColors.fileSketch)),
               ]),
               Text(
                 _isTrash && f.deletedAt != null
@@ -1006,10 +1059,10 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
                 ),
               ]),
             ),
-            if (_selecting)
-              Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked, size: 20, color: selected ? AppColors.green700 : AppColors.muted)
-            else
+            if (!_selecting) ...[
+              if (!_isTrash) _starButton(f),
               _menu(f),
+            ],
           ]),
         ),
       ),

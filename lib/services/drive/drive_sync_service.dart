@@ -261,6 +261,7 @@ class DriveSyncService extends ChangeNotifier {
         journal: _journal,
         conflict: _conflict,
         direction: _direction,
+        trace: _log2, // per-file change-detection diagnostics in the Sync Monitor
       );
       if (actions.isEmpty) {
         _log2('nothing to do — up to date');
@@ -291,6 +292,17 @@ class DriveSyncService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Files that must never sync: hidden/dotfiles (incl. our journal), Microsoft
+  // Office owner-lock files (~$doc.docx), and common OS junk. These are temporary,
+  // machine-local artifacts — syncing them creates stray files and noise.
+  bool _ignoredName(String name) {
+    if (name.startsWith('.')) return true;
+    if (name.startsWith('~\$')) return true; // MS Office lock files
+    if (name.endsWith('.tmp') || name.endsWith('~')) return true;
+    const junk = {'thumbs.db', 'desktop.ini', '.ds_store'};
+    return junk.contains(name.toLowerCase());
+  }
+
   Future<Map<String, LocalStat>> _scanLocal() async {
     final out = <String, LocalStat>{};
     final root = Directory(_folder!);
@@ -301,7 +313,7 @@ class DriveSyncService extends ChangeNotifier {
     await for (final e in root.list(recursive: true, followLinks: false)) {
       final rel = e.path.substring(root.path.length).replaceAll(Platform.pathSeparator, '/').replaceFirst(RegExp('^/'), '');
       final name = rel.split('/').last;
-      if (name.startsWith('.')) continue; // hidden + journal
+      if (_ignoredName(name)) continue; // hidden, journal, Office lock files, OS junk
       if (e is Directory) {
         out[rel] = const LocalStat(isDir: true, size: 0, mtimeMs: 0);
       } else if (e is File) {
@@ -317,6 +329,7 @@ class DriveSyncService extends ChangeNotifier {
     Future<void> walk(String? parentId, String prefix) async {
       final items = await api.listFiles(parentId: parentId, limit: 1000);
       for (final f in items) {
+        if (_ignoredName(f.name)) continue; // don't sync Office lock files / OS junk
         final rel = prefix.isEmpty ? f.name : '$prefix/${f.name}';
         out[rel] = f;
         if (f.isDirectory) await walk(f.id, rel);
