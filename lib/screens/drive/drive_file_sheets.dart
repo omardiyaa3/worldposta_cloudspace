@@ -9,6 +9,7 @@ import '../../config/theme.dart';
 import '../../models/drive_file.dart';
 import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_api.dart';
+import '../../services/drive/drive_client.dart';
 
 DriveApi _api(BuildContext c) => c.read<DriveAccountManager>().activeApi!;
 
@@ -129,6 +130,10 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     setState(() { _future = f; });
   }
 
+  // Commenting needs at least the "commenter" role. Items you own send no role
+  // (myRole == null) → you can comment. Viewers (below commenter) cannot.
+  bool get _canComment => (widget.file.myRole?.rank ?? 99) >= DriveRole.commenter.rank;
+
   @override
   Widget build(BuildContext context) {
     return _panel(context, Icons.comment_outlined, 'Comments', Column(children: [
@@ -156,24 +161,33 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                       )).toList()),
         ),
       ),
-      Row(children: [
-        Expanded(child: TextField(controller: _ctrl, decoration: InputDecoration(hintText: 'Add a comment…', filled: true, fillColor: AppColors.grey96, border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)))),
-        const SizedBox(width: 8),
-        IconButton(
-          icon: const Icon(Icons.send, color: AppColors.green700),
-          onPressed: () async {
-            final body = _ctrl.text.trim();
-            if (body.isEmpty) return;
-            _ctrl.clear();
-            try {
-              await _api(context).addComment(widget.file.id, body);
-              _reload();
-            } catch (e) {
-              if (context.mounted) _snack(context, 'Comment failed: $e', err: true);
-            }
-          },
+      if (_canComment)
+        Row(children: [
+          Expanded(child: TextField(controller: _ctrl, decoration: InputDecoration(hintText: 'Add a comment…', filled: true, fillColor: AppColors.grey96, border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)))),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.send, color: AppColors.green700),
+            onPressed: () async {
+              final body = _ctrl.text.trim();
+              if (body.isEmpty) return;
+              _ctrl.clear();
+              try {
+                await _api(context).addComment(widget.file.id, body);
+                _reload();
+              } catch (e) {
+                final msg = (e is DriveException && (e.isAuth || e.code == 'not_found' || e.code == 'permission_denied'))
+                    ? 'You don\'t have permission to comment here.'
+                    : 'Comment failed: ${e is DriveException ? e.message : e}';
+                if (context.mounted) _snack(context, msg, err: true);
+              }
+            },
+          ),
+        ])
+      else
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text('You have view-only access — commenting is disabled.', style: TextStyle(fontSize: 12, color: AppColors.muted)),
         ),
-      ]),
     ]));
   }
 }

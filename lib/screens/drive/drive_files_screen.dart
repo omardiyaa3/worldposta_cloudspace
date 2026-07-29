@@ -42,6 +42,7 @@ class DriveFilesScreen extends StatefulWidget {
 class _DriveFilesScreenState extends State<DriveFilesScreen> {
   // Current folder (files mode). null = root.
   String? _parentId;
+  DriveFile? _currentFolder; // the folder we've drilled into (for its permission)
   List<DrivePathNode> _crumbs = [];
   List<DriveFile> _files = [];
   bool _loading = true;
@@ -83,6 +84,16 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   bool _canWrite(DriveFile f) => f.canEdit ?? true; // editor+  → rename/move/delete
   bool _canManage(DriveFile f) => (f.myRole?.rank ?? 99) >= DriveRole.manager.rank; // manager+ → share/expiration
 
+  // Whether the CURRENT location accepts new files/folders. Inside a folder we
+  // honour THAT folder's permission — even in "My Files", because folders shared
+  // with you (incl. view-only) show up there too. At a list root: your own drive
+  // (Files) yes; the Shared/Recent/Starred/Trash lists never. This hides
+  // Upload/New/drag-drop when you're viewing a folder you can't write to.
+  bool get _canCreateHere {
+    if (_currentFolder != null) return _currentFolder!.canEdit ?? true;
+    return _isFiles;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -94,8 +105,13 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   }
 
   /// The "New" menu (Upload / New Folder / New File) — shared by the header
-  /// buttons and the sidebar "New" button. Acts on the current folder.
+  /// buttons and the sidebar "New" button. Acts on the current folder, so it's
+  /// blocked when you can't write there (e.g. a view-only shared folder).
   void _showNewMenu() {
+    if (!_canCreateHere) {
+      _snack('You don\'t have permission to add items in this folder.', ok: false);
+      return;
+    }
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
@@ -256,6 +272,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     final append = [..._crumbs, DrivePathNode(id: folder.id, name: folder.name, isDirectory: true)];
     setState(() {
       _parentId = folder.id;
+      _currentFolder = folder;
       _crumbs = append;
       _files = [];
       _loading = true;
@@ -275,6 +292,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   Future<void> _navigateToRoot() async {
     setState(() {
       _parentId = null;
+      _currentFolder = null;
       _crumbs = [];
       _files = [];
       _loading = true;
@@ -286,10 +304,12 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     final node = _crumbs[index];
     setState(() {
       _parentId = node.id;
+      _currentFolder = null; // refreshed from the server below (crumbs lack permission)
       _crumbs = _crumbs.sublist(0, index + 1);
       _files = [];
       _loading = true;
     });
+    try { _currentFolder = await _api.fileDetail(node.id); } catch (_) {}
     await _load();
   }
 
@@ -711,8 +731,9 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
       ],
     );
 
-    // Drag-and-drop upload (files mode, desktop).
-    if (!_isFiles) return body;
+    // Drag-and-drop upload — only where creating is allowed (your drive, or a
+    // shared folder you can edit).
+    if (!_canCreateHere) return body;
     return DropTarget(
       onDragEntered: (_) => setState(() => _dragging = true),
       onDragExited: (_) => setState(() => _dragging = false),
@@ -906,8 +927,8 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
             _sortItem(_SortCol.size, 'Size'),
           ],
         ),
-        if (_isFiles) ...[
-          // Grid/list toggle
+        if (_isFiles)
+          // Grid/list toggle (Files mode only)
           Container(
             decoration: BoxDecoration(color: AppColors.grey96, borderRadius: BorderRadius.circular(6)),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -915,6 +936,9 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
               _viewToggle(Icons.view_list, !_isGrid, () => setState(() => _isGrid = false)),
             ]),
           ),
+        // Create actions — only where you're allowed to add files (hidden in a
+        // view-only shared folder).
+        if (_canCreateHere) ...[
           const SizedBox(width: 8),
           IconButton(icon: const Icon(Icons.upload_file, size: 20, color: AppColors.green800), tooltip: 'Upload', onPressed: _busy ? null : _upload),
           IconButton(icon: const Icon(Icons.create_new_folder_outlined, size: 20, color: AppColors.green800), tooltip: 'New folder', onPressed: _createFolder),
@@ -1005,7 +1029,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
         Icon(icon, size: 64, color: AppColors.muted),
         const SizedBox(height: 16),
         Text(text, style: const TextStyle(color: AppColors.body, fontSize: 16)),
-        if (_isFiles) ...[
+        if (_canCreateHere) ...[
           const SizedBox(height: 16),
           ElevatedButton.icon(onPressed: _upload, icon: const Icon(Icons.upload_file), label: const Text('Upload File')),
         ],

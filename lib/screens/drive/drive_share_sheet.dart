@@ -53,6 +53,8 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
   DriveRole _linkPermission = DriveRole.viewer; // viewer | commenter | editor
   bool _linkAllowDownload = true;
   final _passwordCtrl = TextEditingController();
+  final _cardScroll = ScrollController();   // outer card scroll (grabbable, in a side gutter)
+  final _peopleScroll = ScrollController(); // inner people-list scroll
   DateTime? _expiry;
 
   String? get _currentUserId => context.read<DriveAccountManager>().activeAccount?.userId;
@@ -68,6 +70,8 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
   void dispose() {
     _searchCtrl.dispose();
     _passwordCtrl.dispose();
+    _cardScroll.dispose();
+    _peopleScroll.dispose();
     super.dispose();
   }
 
@@ -192,8 +196,16 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(24, 20, 24, MediaQuery.of(context).viewInsets.bottom + 20),
-      child: SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(24, 20, 12, MediaQuery.of(context).viewInsets.bottom + 20),
+      // Always-visible card scrollbar living in a right-hand gutter, kept clear of
+      // the content, so it's easy to grab and scroll the whole card even when the
+      // pointer is over the (separately scrollable) people list.
+      child: Scrollbar(
+        controller: _cardScroll,
+        thumbVisibility: true,
+        child: SingleChildScrollView(
+        controller: _cardScroll,
+        padding: const EdgeInsets.only(right: 12),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             const Icon(Icons.share, color: AppColors.green800, size: 22),
@@ -253,7 +265,7 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
               decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.grey91)),
               child: _pickable.isEmpty
                   ? const Padding(padding: EdgeInsets.all(16), child: Text('No people to add', style: TextStyle(fontSize: 12, color: AppColors.muted)))
-                  : ListView(shrinkWrap: true, children: _pickable.map((u) => ListTile(
+                  : Scrollbar(controller: _peopleScroll, thumbVisibility: true, child: ListView(controller: _peopleScroll, shrinkWrap: true, children: _pickable.map((u) => ListTile(
                         dense: true,
                         leading: CircleAvatar(radius: 14, backgroundColor: AppColors.green700, child: Text(u.displayName.isNotEmpty ? u.displayName[0].toUpperCase() : '?', style: const TextStyle(color: AppColors.white, fontSize: 12))),
                         title: Text(u.displayName, style: const TextStyle(fontSize: 13)),
@@ -266,7 +278,7 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
                                 label: const Text('Add', style: TextStyle(color: AppColors.green700, fontSize: 13)),
                               ),
                         onTap: _working ? null : () => _grantTo(u),
-                      )).toList()),
+                      )).toList())),
             ),
 
             if (_perms.isNotEmpty) ...[
@@ -393,6 +405,7 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
                 )),
           ],
         ]),
+        ),
       ),
     );
   }
