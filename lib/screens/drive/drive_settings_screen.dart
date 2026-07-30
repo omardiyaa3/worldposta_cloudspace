@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../services/drive/drive_account_manager.dart';
@@ -15,6 +16,47 @@ import 'drive_sync_monitor.dart';
 class DriveSettingsScreen extends StatelessWidget {
   const DriveSettingsScreen({super.key});
 
+  // Resolve the Android sync folder as a TOP-LEVEL public folder
+  // (/storage/emulated/0/CloudSpace), visible in the Files app alongside Download/
+  // DCIM. Needs storage permission (All-files access on Android 11+; legacy write
+  // on ≤10). Falls back to the app's external files dir if permission is denied.
+  Future<String?> _androidSyncPath(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context); // capture before async gaps
+    final ext = await getExternalStorageDirectory(); // …/Android/data/<pkg>/files
+    final idx = ext?.path.indexOf('/Android/') ?? -1;
+    String? top = (ext != null && idx > 0) ? '${ext.path.substring(0, idx)}/CloudSpace' : null;
+
+    if (top != null) {
+      await Permission.storage.request(); // legacy write (Android ≤10/12)
+      if (!await _tryCreateWritable(top)) {
+        await Permission.manageExternalStorage.request(); // All-files access (11+)
+        if (!await _tryCreateWritable(top)) top = null;
+      }
+    }
+    if (top != null) return top;
+
+    // Fallback: app external files dir (visible under Android/data/<pkg>/files).
+    messenger.showSnackBar(const SnackBar(
+      content: Text('Storage permission not granted — syncing to the app folder instead.'),
+      backgroundColor: AppColors.filePdf,
+    ));
+    final base = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+    return '${base.path}/CloudSpace';
+  }
+
+  Future<bool> _tryCreateWritable(String p) async {
+    try {
+      final d = Directory(p);
+      if (!await d.exists()) await d.create(recursive: true);
+      final probe = File('$p/.cs_write_test');
+      await probe.writeAsString('x');
+      await probe.delete();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _pickFolder(BuildContext context, DriveSyncService sync) async {
     String? path;
     if (Platform.isIOS || Platform.isAndroid) {
@@ -24,7 +66,7 @@ class DriveSettingsScreen extends StatelessWidget {
       // storage. Confirm first so the button gives clear feedback.
       final where = Platform.isIOS
           ? 'the Files app under “On My iPhone → CloudSpace”'
-          : 'your device’s CloudSpace app folder';
+          : 'your phone storage as a top-level “CloudSpace” folder (needs storage permission)';
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -44,8 +86,13 @@ class DriveSettingsScreen extends StatelessWidget {
         ),
       );
       if (confirmed != true) return;
-      final dir = await getApplicationDocumentsDirectory();
-      path = '${dir.path}/CloudSpace';
+      if (!context.mounted) return;
+      if (Platform.isAndroid) {
+        path = await _androidSyncPath(context);
+      } else {
+        final base = await getApplicationDocumentsDirectory();
+        path = '${base.path}/CloudSpace';
+      }
     } else {
       path = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Choose a local folder to sync');
     }
