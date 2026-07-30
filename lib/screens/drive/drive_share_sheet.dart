@@ -22,6 +22,7 @@ Future<void> showDriveShareSheet(BuildContext context, DriveFile file) {
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    showDragHandle: true, // reliable drag-to-dismiss even when it fills the screen
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
     builder: (_) => DriveShareSheet(file: file),
   );

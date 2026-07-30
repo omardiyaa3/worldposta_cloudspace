@@ -95,9 +95,12 @@ void showDriveCommentsSheet(BuildContext context, DriveFile file) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    showDragHandle: true, // reliable drag-to-dismiss even when full-height
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-    builder: (_) => Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+    // Read the keyboard inset from the SHEET's context (ctx), not the caller's —
+    // the caller isn't rebuilt when the keyboard opens, so it never lifted before.
+    builder: (ctx) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
       child: _CommentsSheet(file: file),
     ),
   );
@@ -286,8 +289,15 @@ Future<void> showDriveExpirationDialog(BuildContext context, DriveFile file, {Vo
 
 // ── shared panel chrome ─────────────────────────────────────────────────────
 
-Widget _panel(BuildContext context, IconData icon, String title, Widget body) => Container(
-      height: MediaQuery.of(context).size.height * 0.6,
+Widget _panel(BuildContext context, IconData icon, String title, Widget body) {
+  final mq = MediaQuery.of(context);
+  // Cap the card to the space left above the keyboard, so with the input focused
+  // it lifts and stays fully visible instead of being covered/clipped.
+  final available = mq.size.height - mq.viewInsets.bottom - mq.padding.top - 48;
+  final target = mq.size.height * 0.6;
+  final double h = target < available ? target : (available > 220 ? available : 220.0);
+  return Container(
+      height: h,
       padding: const EdgeInsets.all(20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [Icon(icon, color: AppColors.green800, size: 20), const SizedBox(width: 8), Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.heading))]),
@@ -295,4 +305,5 @@ Widget _panel(BuildContext context, IconData icon, String title, Widget body) =>
         const Divider(),
         Expanded(child: body),
       ]),
-    );
+  );
+}
