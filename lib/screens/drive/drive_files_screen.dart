@@ -351,6 +351,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
         const kinds = {'txt': 'Text (.txt)', 'docx': 'Document (.docx)', 'xlsx': 'Spreadsheet (.xlsx)', 'pptx': 'Presentation (.pptx)', 'md': 'Markdown (.md)'};
         return StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
+            scrollable: true, // keep actions anchored when the keyboard opens
             title: const Text('New File'),
             content: Column(mainAxisSize: MainAxisSize.min, children: [
               ...kinds.entries.map((e) => ListTile(
@@ -660,6 +661,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true, // keep actions anchored when the keyboard opens
         title: Text(title),
         content: TextField(
           controller: c,

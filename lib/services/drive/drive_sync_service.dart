@@ -255,7 +255,7 @@ class DriveSyncService extends ChangeNotifier {
       final local = await _scanLocal();
       final remote = await _scanRemote();
       _log2('scanned: ${local.length} local, ${remote.length} remote, ${_journal.length} in journal');
-      final actions = reconcile(
+      var actions = reconcile(
         local: local,
         remote: remote,
         journal: _journal,
@@ -263,6 +263,19 @@ class DriveSyncService extends ChangeNotifier {
         direction: _direction,
         trace: _log2, // per-file change-detection diagnostics in the Sync Monitor
       );
+      // SAFETY GUARD against data loss: a remote scan that comes back empty (or
+      // far short) — a flaky/partial listing, an auth hiccup, a wrong parent — makes
+      // the reconcile think every synced file was deleted on the server and wipe
+      // the LOCAL copies. Never let one cycle delete all/most local files: drop the
+      // local-delete actions and keep the user's files. Genuine, smaller cloud
+      // deletions still propagate.
+      final remoteFiles = remote.values.where((f) => !f.isDirectory).length;
+      final localFiles = local.values.where((s) => !s.isDir).length;
+      final localDeletes = actions.where((a) => a.op == SyncOp.deleteLocal).length;
+      if (localDeletes > 0 && localFiles >= 2 && (remoteFiles == 0 || localDeletes >= localFiles)) {
+        _log2('SAFETY: remote listed $remoteFiles file(s) but sync wanted to delete $localDeletes local file(s) — skipping deletions to protect your files.');
+        actions = actions.where((a) => a.op != SyncOp.deleteLocal).toList();
+      }
       if (actions.isEmpty) {
         _log2('nothing to do — up to date');
       } else {

@@ -249,7 +249,11 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
               // context. Popping via a captured NavigatorState (it lives above
               // `home`, so it survives the rebuild) avoids a null-check crash.
               final nav = Navigator.of(context, rootNavigator: true);
-              nav.push(MaterialPageRoute(builder: (_) => DriveLoginScreen(onSignedIn: () => nav.maybePop())));
+              // On success pop ALL pushed auth routes back to the home shell. SSO
+              // pushes two (login → webview); a single maybePop would leave the
+              // login screen visible, stranding the user on it after adding an
+              // account. popUntil(isFirst) returns to the (rebuilt) home reliably.
+              nav.push(MaterialPageRoute(builder: (_) => DriveLoginScreen(onSignedIn: () => nav.popUntil((r) => r.isFirst))));
             },
             icon: const Icon(Icons.person_add, size: 16, color: AppColors.green800),
             label: const Text('Add Account', style: TextStyle(color: AppColors.green800)),

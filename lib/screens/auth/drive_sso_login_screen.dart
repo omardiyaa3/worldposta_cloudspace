@@ -76,8 +76,14 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
       final mgr = context.read<DriveAccountManager>();
       await mgr.addAccountFromToken(serverUrl: _base, token: token);
       if (mounted) {
-        widget.onSignedIn?.call();
-        Navigator.of(context).maybePop();
+        // Adding an account: onSignedIn pops ALL auth routes back to home. Don't
+        // ALSO maybePop here (that's the racy double-pop that stranded the user on
+        // the login page). Only pop ourselves for the initial login (no callback).
+        if (widget.onSignedIn != null) {
+          widget.onSignedIn!();
+        } else {
+          Navigator.of(context).maybePop();
+        }
       }
     } on DriveException catch (e) {
       if (mounted) setState(() { _finishing = false; _error = 'Signed in, but validating the token failed: ${e.message}'; });
