@@ -21,6 +21,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mime/mime.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/drive_file.dart';
@@ -115,10 +116,38 @@ class DriveSyncService extends ChangeNotifier {
     _periodic = prefs.getBool(_pk('periodic')) ?? false;
     _intervalSeconds = prefs.getInt(_pk('interval')) ?? 30;
     if (_folder != null) {
+      await _reanchorMobileFolder(); // fix stale app-container paths (see below)
       await _loadJournal();
       if (_enabled) start();
     }
     notifyListeners();
+  }
+
+  // iOS reassigns the app-container UUID on reinstall/update, so a sync-folder
+  // path stored under the OLD UUID (…/Containers/Data/Application/<uuid>/Documents/
+  // CloudSpace) becomes invalid — the sync then fails with "Operation not
+  // permitted" trying to create it. Re-anchor such an app-owned path onto the
+  // CURRENT app directory. User-chosen / top-level paths are left untouched.
+  Future<void> _reanchorMobileFolder() async {
+    final f = _folder;
+    if (f == null || !(Platform.isIOS || Platform.isAndroid)) return;
+    final isAppContainer = f.contains('/Containers/Data/Application/') // iOS
+        || f.contains('/Android/data/') || f.contains('/data/user/') || f.contains('/data/data/'); // Android app dirs
+    if (!isAppContainer) return; // top-level / user-picked folder — don't touch
+    try {
+      if (await Directory(f).exists()) return; // still valid
+      final i = f.indexOf('/CloudSpace');
+      final tail = i >= 0 ? f.substring(i + 1) : 'CloudSpace';
+      final base = Platform.isAndroid
+          ? (await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory())
+          : await getApplicationDocumentsDirectory();
+      final rebased = '${base.path}/$tail';
+      if (rebased != f) {
+        _folder = rebased;
+        await _persistConfig();
+        _log2('re-anchored sync folder to current app directory → $rebased');
+      }
+    } catch (_) {/* leave the folder as-is; sync will surface the error */}
   }
 
   Future<void> _persistConfig() async {
