@@ -16,15 +16,24 @@ import 'drive_sync_monitor.dart';
 class DriveSettingsScreen extends StatelessWidget {
   const DriveSettingsScreen({super.key});
 
-  // Resolve the Android sync folder as a TOP-LEVEL public folder
-  // (/storage/emulated/0/CloudSpace), visible in the Files app alongside Download/
-  // DCIM. Needs storage permission (All-files access on Android 11+; legacy write
-  // on ≤10). Falls back to the app's external files dir if permission is denied.
-  Future<String?> _androidSyncPath(BuildContext context) async {
+  // Per-account subfolder (e.g. "CloudSpace/user@worldposta.com") so two accounts
+  // never sync into the SAME folder and clobber each other's files.
+  String _accountFolder(BuildContext context, DriveSyncService sync) {
+    final a = context.read<DriveAccountManager>().activeAccount;
+    final raw = (a != null && a.email.isNotEmpty) ? a.email : sync.accountId;
+    final safe = raw.replaceAll(RegExp(r'[^A-Za-z0-9._@-]'), '_');
+    return 'CloudSpace/${safe.isEmpty ? sync.accountId : safe}';
+  }
+
+  // Resolve the Android sync folder as a TOP-LEVEL public folder under
+  // /storage/emulated/0/<rel> (rel = "CloudSpace/<account>"), visible in the Files
+  // app alongside Download/DCIM. Needs storage permission (All-files access on
+  // Android 11+; legacy write on ≤10). Falls back to the app's external files dir.
+  Future<String?> _androidSyncPath(BuildContext context, String rel) async {
     final messenger = ScaffoldMessenger.of(context); // capture before async gaps
     final ext = await getExternalStorageDirectory(); // …/Android/data/<pkg>/files
     final idx = ext?.path.indexOf('/Android/') ?? -1;
-    String? top = (ext != null && idx > 0) ? '${ext.path.substring(0, idx)}/CloudSpace' : null;
+    String? top = (ext != null && idx > 0) ? '${ext.path.substring(0, idx)}/$rel' : null;
 
     if (top != null) {
       await Permission.storage.request(); // legacy write (Android ≤10/12)
@@ -41,7 +50,7 @@ class DriveSettingsScreen extends StatelessWidget {
       backgroundColor: AppColors.filePdf,
     ));
     final base = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
-    return '${base.path}/CloudSpace';
+    return '${base.path}/$rel';
   }
 
   Future<bool> _tryCreateWritable(String p) async {
@@ -87,11 +96,12 @@ class DriveSettingsScreen extends StatelessWidget {
       );
       if (confirmed != true) return;
       if (!context.mounted) return;
+      final rel = _accountFolder(context, sync); // e.g. "CloudSpace/user@worldposta.com"
       if (Platform.isAndroid) {
-        path = await _androidSyncPath(context);
+        path = await _androidSyncPath(context, rel);
       } else {
         final base = await getApplicationDocumentsDirectory();
-        path = '${base.path}/CloudSpace';
+        path = '${base.path}/$rel';
       }
     } else {
       path = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Choose a local folder to sync');
