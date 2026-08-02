@@ -137,20 +137,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     );
   }
 
-  String _friendly(Object e) {
-    if (e is DriveException) {
-      if (e.isAuth) return 'Your session expired. Please sign in again.';
-      if (e.isNotFound) return 'Not found.';
-      if (e.isQuota) return 'Storage is full.';
-      if (e.code == 'permission_denied') return 'You don\'t have permission to do that.';
-      return e.message;
-    }
-    final s = e.toString();
-    if (s.contains('SocketException') || s.contains('ClientException')) {
-      return 'Connection lost. Check your internet and try again.';
-    }
-    return s.length > 100 ? '${s.substring(0, 100)}…' : s;
-  }
+  String _friendly(Object e) => friendlyError(e);
 
   Future<void> _load() async {
     if (mounted) setState(() => _error = null);

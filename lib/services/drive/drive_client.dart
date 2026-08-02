@@ -40,6 +40,34 @@ class DriveException implements Exception {
   String toString() => 'DriveException($status $code: $message)';
 }
 
+/// A short, plain-language message for ANY error surfaced to the user — never the
+/// raw exception. Callers add their own prefix (e.g. "Restore failed: ").
+String friendlyError(Object e) {
+  if (e is DriveException) {
+    if (e.isAuth) return 'Your session expired — please sign in again.';
+    if (e.isSuspended) return 'This account is suspended.';
+    if (e.isNotFound) return 'That item no longer exists.';
+    if (e.isQuota) return 'Not enough storage space.';
+    if (e.isConflict) return 'Something with that name already exists here.';
+    if (e.code == 'permission_denied' || e.status == 403) return 'You don’t have permission to do that.';
+    if (e.status == 0) return 'Can’t reach the server. Check your connection.';
+    if (e.status >= 500) return 'The server ran into a problem. Please try again.';
+    if (e.code == 'validation_error' || e.status == 400) {
+      return e.message.isNotEmpty ? e.message : 'That didn’t work — please check and try again.';
+    }
+    return 'Something went wrong. Please try again.';
+  }
+  final s = e.toString();
+  if (s.contains('SocketException') || s.contains('ClientException') || s.contains('Failed host lookup') || s.contains('Connection')) {
+    return 'Can’t reach the server. Check your connection.';
+  }
+  if (s.contains('TimeoutException')) return 'The request timed out. Please try again.';
+  if (s.contains('PathAccessException') || s.contains('FileSystemException') || s.contains('PathNotFound')) {
+    return 'Couldn’t access that file on this device.';
+  }
+  return 'Something went wrong. Please try again.';
+}
+
 class DriveClient {
   final String baseUrl; // e.g. https://drive.worldposta.com (no trailing slash)
   final String token; // dk_… — this account's credential

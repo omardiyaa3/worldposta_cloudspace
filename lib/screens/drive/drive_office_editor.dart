@@ -95,11 +95,9 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
       if (mounted) {
         setState(() {
           _loadingUrl = false;
-          _error = e is DriveException
-              ? (e.code == 'validation_error' || e.message.contains('not supported')
-                  ? 'This file type can\'t be edited in Office Online.'
-                  : e.message)
-              : e.toString();
+          _error = (e is DriveException && (e.code == 'validation_error' || e.message.contains('not supported')))
+              ? 'This file type can\'t be edited in Office Online.'
+              : friendlyError(e);
         });
       }
     }

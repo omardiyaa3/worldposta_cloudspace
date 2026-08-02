@@ -79,7 +79,7 @@ class _VersionsSheetState extends State<_VersionsSheet> {
                                 if (context.mounted) _snack(context, 'Version restored');
                                 widget.onRestored?.call();
                               } catch (e) {
-                                if (context.mounted) _snack(context, 'Restore failed: $e', err: true);
+                                if (context.mounted) _snack(context, 'Restore failed: ${friendlyError(e)}', err: true);
                               }
                             },
                             child: const Text('Restore'),
@@ -178,9 +178,9 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                 await _api(context).addComment(widget.file.id, body);
                 _reload();
               } catch (e) {
-                final msg = (e is DriveException && (e.isAuth || e.code == 'not_found' || e.code == 'permission_denied'))
-                    ? 'You don\'t have permission to comment here.'
-                    : 'Comment failed: ${e is DriveException ? e.message : e}';
+                final msg = (e is DriveException && (e.isAuth || e.isNotFound || e.code == 'permission_denied'))
+                    ? 'You don’t have permission to comment here.'
+                    : 'Comment failed: ${friendlyError(e)}';
                 if (context.mounted) _snack(context, msg, err: true);
               }
             },
@@ -261,7 +261,7 @@ Future<void> showDriveExpirationDialog(BuildContext context, DriveFile file, {Vo
       onChanged?.call();
       if (context.mounted) _snack(context, 'Expiration removed');
     } catch (e) {
-      if (context.mounted) _snack(context, 'Failed: $e', err: true);
+      if (context.mounted) _snack(context, 'Failed: ${friendlyError(e)}', err: true);
     }
     return;
   }

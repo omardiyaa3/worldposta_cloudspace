@@ -88,7 +88,7 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
     } on DriveException catch (e) {
       if (mounted) setState(() { _finishing = false; _error = 'Signed in, but validating the token failed: ${e.message}'; });
     } catch (e) {
-      if (mounted) setState(() { _finishing = false; _error = 'Could not complete sign-in: $e'; });
+      if (mounted) setState(() { _finishing = false; _error = 'Could not complete sign-in: ${friendlyError(e)}'; });
     }
   }
 

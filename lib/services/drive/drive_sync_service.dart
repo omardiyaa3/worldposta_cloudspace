@@ -26,6 +26,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/drive_file.dart';
 import 'drive_api.dart';
+import 'drive_client.dart';
 import 'drive_sync_reconcile.dart';
 
 export 'drive_sync_reconcile.dart'; // re-export pure types for existing imports
@@ -326,8 +327,8 @@ class DriveSyncService extends ChangeNotifier {
       _status = parts.isEmpty ? 'Up to date' : 'Synced: ${parts.join(', ')}';
       _log2('done: ${parts.isEmpty ? 'up to date' : parts.join(', ')}');
     } catch (e) {
-      _log2('SYNC ERROR: $e');
-      _status = 'Error: ${e.toString().split('\n').first}';
+      _log2('SYNC ERROR: $e'); // full detail stays in the Monitor log for debugging
+      _status = 'Sync error: ${friendlyError(e)}'; // clean message on the status card
     }
     _currentFile = '';
     _syncing = false;

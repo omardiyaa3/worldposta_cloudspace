@@ -49,7 +49,7 @@ class _DriveSearchResultsState extends State<DriveSearchResults> {
       if (mounted && id == _reqId) setState(() { _hits = hits; _loading = false; });
     } catch (e) {
       if (mounted && id == _reqId) {
-        setState(() { _error = e is DriveException ? e.message : e.toString(); _loading = false; });
+        setState(() { _error = friendlyError(e); _loading = false; });
       }
     }
   }
@@ -132,7 +132,7 @@ class _DriveSearchScreenState extends State<DriveSearchScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e is DriveException ? e.message : e.toString();
+          _error = friendlyError(e);
           _loading = false;
         });
       }

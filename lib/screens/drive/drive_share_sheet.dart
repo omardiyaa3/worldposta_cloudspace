@@ -108,7 +108,7 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
     }).toList();
   }
 
-  String _friendly(Object e) => e is DriveException ? e.message : e.toString();
+  String _friendly(Object e) => friendlyError(e);
   void _flash(String m, {bool err = false}) => setState(() { _msg = m; _msgErr = err; });
 
   Future<void> _grantTo(DriveUser u) async {

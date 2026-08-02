@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../services/drive/drive_account_manager.dart';
+import '../../services/drive/drive_client.dart';
 import '../../services/drive/drive_sync_service.dart';
 import 'drive_sync_config.dart';
 import 'drive_sync_monitor.dart';
@@ -113,7 +114,7 @@ class DriveSettingsScreen extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not start sync: $e'), backgroundColor: AppColors.filePdf),
+          SnackBar(content: Text('Could not start sync: ${friendlyError(e)}'), backgroundColor: AppColors.filePdf),
         );
       }
       return;

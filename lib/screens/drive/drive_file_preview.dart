@@ -115,7 +115,7 @@ class _DriveFilePreviewState extends State<DriveFilePreview> {
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        _snack('Save failed: ${e is DriveException ? e.message : e}', err: true);
+        _snack('Save failed: ${friendlyError(e)}', err: true);
       }
     }
   }
@@ -129,7 +129,7 @@ class _DriveFilePreviewState extends State<DriveFilePreview> {
       setState(() { _bytes = bytes; _loading = false; });
       if (_isAudio) _initAudio(bytes);
     } catch (e) {
-      if (mounted) setState(() { _error = e is DriveException ? e.message : e.toString(); _loading = false; });
+      if (mounted) setState(() { _error = friendlyError(e); _loading = false; });
     }
   }
 
@@ -157,7 +157,7 @@ class _DriveFilePreviewState extends State<DriveFilePreview> {
       if (!isMobile) await File(path).writeAsBytes(bytes);
       _snack('"${widget.file.name}" saved');
     } catch (e) {
-      _snack('Download failed: $e', err: true);
+      _snack('Download failed: ${friendlyError(e)}', err: true);
     }
   }
 
@@ -170,7 +170,7 @@ class _DriveFilePreviewState extends State<DriveFilePreview> {
       await f.writeAsBytes(bytes);
       await OpenFilex.open(f.path);
     } catch (e) {
-      _snack('Could not open: $e', err: true);
+      _snack('Could not open: ${friendlyError(e)}', err: true);
     }
   }
 
@@ -216,7 +216,7 @@ class _DriveFilePreviewState extends State<DriveFilePreview> {
                                         setState(() { _loading = true; _bytes = null; });
                                         if (_inlineable) _load();
                                       } catch (e) {
-                                        _snack('Restore failed: $e', err: true);
+                                        _snack('Restore failed: ${friendlyError(e)}', err: true);
                                       }
                                     },
                                     child: const Text('Restore'),
@@ -281,7 +281,7 @@ class _DriveFilePreviewState extends State<DriveFilePreview> {
                         await _api.addComment(widget.file.id, body);
                         setSheet(() { future = load(); });
                       } catch (e) {
-                        _snack('Comment failed: $e', err: true);
+                        _snack('Comment failed: ${friendlyError(e)}', err: true);
                       }
                     },
                   ),
