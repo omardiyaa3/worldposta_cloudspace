@@ -117,7 +117,7 @@ class DriveShare {
 class DrivePermission {
   final String id;
   final String resourceId;
-  final String subjectType; // user | group
+  final String subjectType; // user | group | external_tenant_user (pending email invite)
   final String subjectId;
   final String? subjectEmail;
   final String? subjectName;
@@ -125,6 +125,10 @@ class DrivePermission {
   final String? inheritedFrom;
   final DateTime? expiresAt;
   final bool blockReshare;
+  /// Recipient is outside the owner's organization (or a pending invite).
+  final bool external;
+  /// Email invite to someone who hasn't signed in to Drive yet.
+  final bool pending;
   const DrivePermission({
     required this.id,
     required this.resourceId,
@@ -136,6 +140,8 @@ class DrivePermission {
     this.inheritedFrom,
     this.expiresAt,
     this.blockReshare = false,
+    this.external = false,
+    this.pending = false,
   });
 
   bool get isInherited => inheritedFrom != null && inheritedFrom!.isNotEmpty;
@@ -153,6 +159,8 @@ class DrivePermission {
       inheritedFrom: j['inherited_from'] as String?,
       expiresAt: j['expires_at'] is String ? DateTime.tryParse(j['expires_at'] as String) : null,
       blockReshare: j['block_reshare'] == true,
+      external: j['external'] == true,
+      pending: j['pending'] == true,
     );
   }
 }
@@ -481,7 +489,7 @@ class DriveApi {
 
   Future<DrivePermission> grantPermission({
     required String resourceId,
-    required String subjectType, // user | group
+    required String subjectType, // user | group | email (subjectId = the address)
     required String subjectId,
     required DriveRole role,
     DateTime? expiresAt,
@@ -491,7 +499,11 @@ class DriveApi {
   }) async {
     final data = await _c.post('/api/v1/permissions', body: {
       'resource_id': resourceId,
-      'subject': {'type': subjectType, 'id': subjectId},
+      // 'email' shares with anyone by address: a WorldPosta user in another
+      // organization, or a pending invite that activates on their first sign-in.
+      'subject': subjectType == 'email'
+          ? {'type': 'email', 'email': subjectId}
+          : {'type': subjectType, 'id': subjectId},
       'role': role.wire,
       if (expiresAt != null) 'expires_at': expiresAt.toUtc().toIso8601String(),
       if (blockReshare != null) 'block_reshare': blockReshare,
@@ -538,7 +550,10 @@ class DriveApi {
     String? parentId,
     String? contentType,
   }) async {
+    // parent_id also goes in the query so the server can route an upload into a
+    // folder shared from another organization before parsing the body.
     final data = await _c.postMultipart('/api/v1/files',
+        query: {if (parentId != null) 'parent_id': parentId},
         bytes: bytes,
         filename: name,
         contentType: contentType,

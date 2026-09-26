@@ -1,7 +1,10 @@
 // drive_share_sheet.dart — share a file/folder with people or via a public link.
 //
 // People:  GET /users/search (autocomplete) → POST /permissions (named roles
-//          viewer/commenter/editor/manager), listed with inherited badges,
+//          viewer/commenter/editor/manager). Typing a full email that isn't in
+//          the directory shares outside the organization (subject type
+//          'email'; outsiders capped at editor). Listed with inherited /
+//          external / invited badges,
 //          revoked via DELETE /permissions/{id}.
 // Links:   POST /shares (optional password + expiry) → copyable URL, listed and
 //          revoked via DELETE /shares/{id}.
@@ -108,6 +111,38 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
     }).toList();
   }
 
+  static final _emailRe = RegExp(r'^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$');
+
+  /// The typed text, when it's a full email address that isn't already in the
+  /// directory list or granted — offered as "share outside your organization".
+  String? get _typedEmail {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (!_emailRe.hasMatch(q)) return null;
+    if (_allUsers.any((u) => u.email.toLowerCase() == q)) return null;
+    if (_perms.any((p) => (p.subjectEmail ?? '').toLowerCase() == q)) return null;
+    return q;
+  }
+
+  /// Share with anyone by email: a WorldPosta user in another organization, or
+  /// a pending invite that activates when they first sign in. Outsiders are
+  /// capped at Editor.
+  Future<void> _grantToEmail(String email) async {
+    final role = _role == DriveRole.manager ? DriveRole.editor : _role;
+    setState(() => _working = true);
+    try {
+      final p = await _api.grantPermission(resourceId: widget.file.id, subjectType: 'email', subjectId: email, role: role);
+      _searchCtrl.clear();
+      await _load();
+      _flash(p.pending
+          ? 'Invited $email as ${_roleLabel(role)} — they get access when they sign in'
+          : 'Shared with $email as ${_roleLabel(role)}');
+    } catch (e) {
+      _flash('Share failed: ${_friendly(e)}', err: true);
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
   String _friendly(Object e) => friendlyError(e);
   void _flash(String m, {bool err = false}) => setState(() { _msg = m; _msgErr = err; });
 
@@ -131,7 +166,12 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
     if (role == p.role) return;
     setState(() => _working = true);
     try {
-      await _api.grantPermission(resourceId: widget.file.id, subjectType: p.subjectType, subjectId: p.subjectId, role: role);
+      final pendingInvite = p.subjectType == 'external_tenant_user';
+      await _api.grantPermission(
+          resourceId: widget.file.id,
+          subjectType: pendingInvite ? 'email' : p.subjectType,
+          subjectId: pendingInvite ? (p.subjectEmail ?? p.subjectId) : p.subjectId,
+          role: role);
       await _load();
       _flash('Updated to ${_roleLabel(role)}');
     } catch (e) {
@@ -233,7 +273,7 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
           else ...[
             // People — pick from the tenant directory.
             Row(children: [
-              const Expanded(child: Text('Add people in your organization', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.heading))),
+              const Expanded(child: Text('Add people', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.heading))),
               const Text('as ', style: TextStyle(fontSize: 12, color: AppColors.body)),
               DropdownButton<DriveRole>(
                 value: _role,
@@ -252,7 +292,7 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
             TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
-                hintText: 'Search people…',
+                hintText: 'Search people or type any email…',
                 prefixIcon: const Icon(Icons.person_search, size: 20, color: AppColors.muted),
                 filled: true,
                 fillColor: AppColors.grey96,
@@ -264,9 +304,31 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
             Container(
               constraints: const BoxConstraints(maxHeight: 180),
               decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.grey91)),
-              child: _pickable.isEmpty
-                  ? const Padding(padding: EdgeInsets.all(16), child: Text('No people to add', style: TextStyle(fontSize: 12, color: AppColors.muted)))
-                  : Scrollbar(controller: _peopleScroll, thumbVisibility: true, child: ListView(controller: _peopleScroll, shrinkWrap: true, children: _pickable.map((u) => ListTile(
+              child: _pickable.isEmpty && _typedEmail == null
+                  ? Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                          _searchCtrl.text.trim().isEmpty
+                              ? 'No people to add'
+                              : 'No one in your organization matches. Type a full email to share outside it.',
+                          style: const TextStyle(fontSize: 12, color: AppColors.muted)))
+                  : Scrollbar(controller: _peopleScroll, thumbVisibility: true, child: ListView(controller: _peopleScroll, shrinkWrap: true, children: [
+                      if (_typedEmail != null)
+                        ListTile(
+                          dense: true,
+                          leading: const CircleAvatar(radius: 14, backgroundColor: AppColors.green800, child: Icon(Icons.mail_outline, size: 14, color: AppColors.white)),
+                          title: Text(_typedEmail!, style: const TextStyle(fontSize: 13)),
+                          subtitle: const Text('Outside your organization', style: TextStyle(fontSize: 11, color: AppColors.muted)),
+                          trailing: _working
+                              ? null
+                              : TextButton.icon(
+                                  onPressed: () => _grantToEmail(_typedEmail!),
+                                  icon: const Icon(Icons.add, size: 16, color: AppColors.green700),
+                                  label: const Text('Add', style: TextStyle(color: AppColors.green700, fontSize: 13)),
+                                ),
+                          onTap: _working ? null : () => _grantToEmail(_typedEmail!),
+                        ),
+                      ..._pickable.map((u) => ListTile(
                         dense: true,
                         leading: CircleAvatar(radius: 14, backgroundColor: AppColors.green700, child: Text(u.displayName.isNotEmpty ? u.displayName[0].toUpperCase() : '?', style: const TextStyle(color: AppColors.white, fontSize: 12))),
                         title: Text(u.displayName, style: const TextStyle(fontSize: 13)),
@@ -279,7 +341,8 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
                                 label: const Text('Add', style: TextStyle(color: AppColors.green700, fontSize: 13)),
                               ),
                         onTap: _working ? null : () => _grantTo(u),
-                      )).toList())),
+                      )),
+                    ])),
             ),
 
             if (_perms.isNotEmpty) ...[
@@ -290,14 +353,21 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(p.subjectType == 'group' ? Icons.group_outlined : Icons.person_outline, size: 20, color: AppColors.green800),
                     title: Text(p.subjectName ?? p.subjectEmail ?? p.subjectId, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
-                    subtitle: p.isInherited ? const Text('inherited', style: TextStyle(fontSize: 11, color: AppColors.muted)) : null,
+                    subtitle: (p.isInherited || p.external)
+                        ? Text(
+                            [
+                              if (p.pending) 'Invited · gets access on first sign-in' else if (p.external) 'External',
+                              if (p.isInherited) 'inherited',
+                            ].join(' · '),
+                            style: const TextStyle(fontSize: 11, color: AppColors.muted))
+                        : null,
                     trailing: p.isInherited
                         ? const Icon(Icons.lock_outline, size: 16, color: AppColors.muted)
                         : PopupMenuButton<String>(
                             enabled: !_working,
                             onSelected: (v) => v == 'remove' ? _revoke(p) : _changeRole(p, DriveRoleX.fromWire(v)!),
                             itemBuilder: (_) => [
-                              for (final r in [DriveRole.viewer, DriveRole.commenter, DriveRole.editor, DriveRole.manager])
+                              for (final r in [DriveRole.viewer, DriveRole.commenter, DriveRole.editor, if (!p.external) DriveRole.manager])
                                 CheckedPopupMenuItem(value: r.wire, checked: p.role == r, child: Text(_roleLabel(r))),
                               const PopupMenuDivider(),
                               const PopupMenuItem(value: 'remove', child: Row(children: [Icon(Icons.person_remove, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Remove', style: TextStyle(color: AppColors.filePdf))])),

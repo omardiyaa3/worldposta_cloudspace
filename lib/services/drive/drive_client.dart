@@ -197,8 +197,9 @@ class DriveClient {
     required String filename,
     String? contentType,
     Map<String, String> fields = const {},
+    Map<String, dynamic>? query,
   }) async {
-    final req = http.MultipartRequest('POST', _uri(path));
+    final req = http.MultipartRequest('POST', _uri(path, query));
     req.headers.addAll(_authHeaders);
     req.fields.addAll(fields);
     req.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
