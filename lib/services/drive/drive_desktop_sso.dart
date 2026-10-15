@@ -7,7 +7,8 @@
 //   2. open the user's real browser at
 //        <base>/api/v1/auth/desktop?callback=http://127.0.0.1:<port>/callback&state=<nonce>
 //   3. the backend authenticates the browser via the existing WorldPosta SSO
-//      session (redirecting to the SSO login first if needed), mints a `dk_`
+//      session (redirecting to the SSO login first if needed — or, when the
+//      server runs in Active Directory mode, to its own /login page), mints a `dk_`
 //      Drive token for that user, then 302-redirects to our loopback callback
 //      with ?token=<dk_…>&state=<nonce>;
 //   4. we capture the token, verify the state nonce (CSRF guard), show a
@@ -24,6 +25,7 @@ import 'dart:math';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/drive_constants.dart';
+import 'drive_auth_mode.dart';
 
 class DesktopSsoException implements Exception {
   final String message;
@@ -57,9 +59,14 @@ class DriveDesktopSso {
       final endpoint = '$base/api/v1/auth/desktop'
           '?callback=${Uri.encodeQueryComponent(callback)}'
           '&state=$state';
-      final authUrl = Uri.parse(
-        '${DriveConstants.ssoAuthUrl}/login?return_to=${Uri.encodeQueryComponent(endpoint)}',
-      );
+      // AD mode: open the desktop endpoint directly — the Drive sends the
+      // browser to its own login page and back. SSO mode: go through the SSO.
+      final mode = await DriveAuthModeProbe.fetch(base);
+      final authUrl = mode == DriveAuthMode.ad
+          ? Uri.parse(endpoint)
+          : Uri.parse(
+              '${DriveConstants.ssoAuthUrl}/login?return_to=${Uri.encodeQueryComponent(endpoint)}',
+            );
 
       final launched = await launchUrl(authUrl, mode: LaunchMode.externalApplication);
       if (!launched) {

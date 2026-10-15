@@ -19,6 +19,7 @@ import 'package:provider/provider.dart';
 import '../../config/drive_constants.dart';
 import '../../config/theme.dart';
 import '../../services/drive/drive_account_manager.dart';
+import '../../services/drive/drive_auth_mode.dart';
 import '../../services/drive/drive_client.dart';
 
 class DriveSsoLoginScreen extends StatefulWidget {
@@ -48,6 +49,20 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
   String get _ssoLoginUrl {
     final returnTo = Uri.encodeComponent('$_base/');
     return '${DriveConstants.ssoAuthUrl}/login?return_to=$returnTo';
+  }
+
+  /// Where the webview starts: the SSO login, or — when the server signs users
+  /// in against Active Directory — the Drive's own /login page. null until the
+  /// server's mode is known.
+  String? _startUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    DriveAuthModeProbe.fetch(_base).then((mode) {
+      if (!mounted) return;
+      setState(() => _startUrl = mode == DriveAuthMode.ad ? '$_base/login?return_to=%2F' : _ssoLoginUrl);
+    });
   }
 
   // Runs on the Drive origin: try to mint a token; if it works, hand it back.
@@ -117,8 +132,9 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
           ),
         Expanded(
           child: Stack(children: [
+            if (_startUrl != null)
             inapp.InAppWebView(
-              initialUrlRequest: inapp.URLRequest(url: inapp.WebUri(_ssoLoginUrl)),
+              initialUrlRequest: inapp.URLRequest(url: inapp.WebUri(_startUrl!)),
               initialSettings: inapp.InAppWebViewSettings(
                 javaScriptEnabled: true,
                 javaScriptCanOpenWindowsAutomatically: true,
@@ -144,7 +160,9 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
                 if (url == null || _finishing) return;
                 // Only attempt minting once we're back on the Drive's own origin
                 // (i.e. the SSO round-trip completed and the session cookie is set).
-                if (url.host == _baseUri.host) {
+                // In AD mode the login page itself is on the Drive origin: skip it
+                // (no session yet) and mint after it navigates away.
+                if (url.host == _baseUri.host && url.path != '/login') {
                   await controller.evaluateJavascript(source: _mintJs);
                 }
               },
