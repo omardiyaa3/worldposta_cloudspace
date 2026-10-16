@@ -10,7 +10,7 @@ import '../../config/theme.dart';
 import '../../models/drive_file.dart';
 import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_cache.dart';
-import 'drive_file_preview.dart';
+import 'drive_open_file.dart';
 
 class DriveDashboard extends StatelessWidget {
   final VoidCallback onNavigateToFiles;
@@ -143,7 +143,7 @@ class DriveDashboard extends StatelessWidget {
             const Padding(padding: EdgeInsets.all(20), child: Center(child: Text('No files yet.', style: TextStyle(color: AppColors.muted))))
           else
             ...recent.map((f) => InkWell(
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DriveFilePreview(file: f))),
+                  onTap: () => openDriveFile(context, f),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(children: [

@@ -8,7 +8,7 @@ import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_api.dart';
 import '../../services/drive/drive_client.dart';
 import '../../widgets/file_type_badge.dart';
-import 'drive_file_preview.dart';
+import 'drive_open_file.dart';
 
 /// Live search results, rendered inline in the shell's content area (no Scaffold)
 /// so the persistent top-bar search field stays focused while typing. Re-runs the
@@ -57,7 +57,7 @@ class _DriveSearchResultsState extends State<DriveSearchResults> {
   void _open(DriveSearchHit h) {
     final f = DriveFile(id: h.id, isDirectory: h.isDirectory, name: h.name, sizeBytes: h.sizeBytes, mimeType: h.mimeType);
     if (!f.isDirectory) {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => DriveFilePreview(file: f)));
+      openDriveFile(context, f);
     }
   }
 
@@ -142,7 +142,7 @@ class _DriveSearchScreenState extends State<DriveSearchScreen> {
   void _open(DriveSearchHit h) {
     final f = DriveFile(id: h.id, isDirectory: h.isDirectory, name: h.name, sizeBytes: h.sizeBytes, mimeType: h.mimeType);
     if (!f.isDirectory) {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => DriveFilePreview(file: f)));
+      openDriveFile(context, f);
     }
   }
 

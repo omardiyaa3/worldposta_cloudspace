@@ -21,6 +21,7 @@ import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_api.dart';
 import '../../services/drive/drive_client.dart';
 import 'drive_office_editor.dart';
+import 'drive_open_file.dart' show driveOfficeExtensions;
 
 class DriveFilePreview extends StatefulWidget {
   final DriveFile file;
@@ -51,18 +52,17 @@ class _DriveFilePreviewState extends State<DriveFilePreview> {
 
   static const _image = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'};
   static const _text = {
-    'txt', 'md', 'json', 'xml', 'yaml', 'yml', 'log', 'csv', 'tsv', 'html', 'htm',
+    'txt', 'md', 'json', 'xml', 'yaml', 'yml', 'log', 'tsv', 'html', 'htm',
     'css', 'js', 'ts', 'dart', 'py', 'java', 'c', 'cpp', 'h', 'sh', 'sql', 'go', 'rs', 'svg',
   };
   static const _audioExt = {'mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a', 'opus'};
-  static const _officeExt = {'docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt', 'odt', 'ods', 'odp'};
 
   String get _ext => widget.file.extension;
   bool get _isImage => _image.contains(_ext);
   bool get _isText => _text.contains(_ext);
   bool get _isPdf => _ext == 'pdf';
   bool get _isAudio => _audioExt.contains(_ext);
-  bool get _isOffice => _officeExt.contains(_ext);
+  bool get _isOffice => driveOfficeExtensions.contains(_ext);
   bool get _inlineable => _isImage || _isText || _isPdf || _isAudio;
 
   @override

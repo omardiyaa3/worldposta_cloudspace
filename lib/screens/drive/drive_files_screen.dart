@@ -20,9 +20,8 @@ import '../../services/drive/drive_api.dart';
 import '../../services/drive/drive_cache.dart';
 import '../../services/drive/drive_client.dart';
 import '../../widgets/file_type_badge.dart';
-import 'drive_file_preview.dart';
+import 'drive_open_file.dart';
 import 'drive_file_sheets.dart';
-import 'drive_office_editor.dart';
 import 'drive_share_sheet.dart';
 
 enum DriveViewMode { files, recent, starred, shared, trash }
@@ -588,19 +587,13 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
     }
   }
 
-  static const _officeExts = {'docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt', 'odt', 'ods', 'odp'};
-
   void _open(DriveFile f) {
     if (f.isDirectory) {
       _openFolder(f);
       return;
     }
     // Office files → Collabora editor (like the Drive); everything else → preview.
-    if (_officeExts.contains(f.extension)) {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => DriveOfficeEditor(file: f)));
-      return;
-    }
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DriveFilePreview(file: f)));
+    openDriveFile(context, f);
   }
 
   Future<void> _share(DriveFile f) => showDriveShareSheet(context, f);
