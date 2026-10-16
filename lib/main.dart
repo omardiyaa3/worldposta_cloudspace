@@ -25,7 +25,7 @@ void main(List<String> args) async {
 
   if (_isDesktop) {
     await windowManager.ensureInitialized();
-    const windowOptions = WindowOptions(size: Size(1100, 750), minimumSize: Size(400, 300), title: 'CloudSpace');
+    const windowOptions = WindowOptions(size: Size(1100, 750), minimumSize: Size(400, 300), title: 'Posta Drive');
     await windowManager.waitUntilReadyToShow(windowOptions, () async {
       await windowManager.setPreventClose(true);
       if (_startMinimized) {
@@ -144,9 +144,9 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
   Future<void> _initTray() async {
     try {
       await trayManager.setIcon(await _resolveTrayIcon(), isTemplate: false);
-      await trayManager.setToolTip('CloudSpace');
+      await trayManager.setToolTip('Posta Drive');
       await trayManager.setContextMenu(Menu(items: [
-        MenuItem(label: 'Show CloudSpace', onClick: (_) async { await windowManager.show(); await windowManager.focus(); }),
+        MenuItem(label: 'Show Posta Drive', onClick: (_) async { await windowManager.show(); await windowManager.focus(); }),
         MenuItem.separator(),
         MenuItem(label: 'Quit', onClick: (_) async {
           await trayManager.destroy();
@@ -190,7 +190,7 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
         if (_sync != null) ChangeNotifierProvider<DriveSyncService>.value(value: _sync!),
       ],
       child: MaterialApp(
-        title: 'CloudSpace',
+        title: 'Posta Drive',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         // Key on the active account so the whole tree rebuilds on switch and no

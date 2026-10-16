@@ -125,9 +125,9 @@ class DriveDesktopSso {
   }
 
   static String _resultHtml(bool ok) {
-    final title = ok ? 'Signed in to CloudSpace' : 'Sign-in failed';
+    final title = ok ? 'Signed in to Posta Drive' : 'Sign-in failed';
     final msg = ok
-        ? 'You can close this tab and return to the CloudSpace app.'
+        ? 'You can close this tab and return to the Posta Drive app.'
         : 'Something went wrong. Close this tab and try again from the app.';
     final color = ok ? '#679A41' : '#D14343';
     final icon = ok ? '&#10003;' : '&#10007;';

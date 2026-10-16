@@ -53,34 +53,45 @@ jobs:
           Write-Host "Installer version $appVersion"
           @"
           [Setup]
-          AppName=CloudSpace
+          ; AppId stays "CloudSpace" (the old AppName = its default AppId) so this
+          ; upgrades an existing CloudSpace install in place instead of adding a
+          ; second app; existing installs keep their folder (UsePreviousAppDir).
+          AppId=CloudSpace
+          AppName=Posta Drive
           AppVersion=$appVersion
           AppPublisher=WorldPosta
-          DefaultDirName={autopf}\CloudSpace
-          DefaultGroupName=CloudSpace
+          DefaultDirName={autopf}\Posta Drive
+          DefaultGroupName=Posta Drive
           OutputDir=.
-          OutputBaseFilename=CloudSpace-Setup
+          OutputBaseFilename=PostaDrive-Setup
           Compression=lzma2
           SolidCompression=yes
           SetupIconFile=windows\runner\resources\app_icon.ico
-          UninstallDisplayIcon={app}\CloudSpace.exe
-          UninstallDisplayName=CloudSpace
+          UninstallDisplayIcon={app}\PostaDrive.exe
+          UninstallDisplayName=Posta Drive
           CloseApplications=force
-          CloseApplicationsFilter=CloudSpace.exe
+          CloseApplicationsFilter=PostaDrive.exe,CloudSpace.exe
           RestartApplications=no
 
           [Files]
           Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
+          [InstallDelete]
+          ; Leftovers of the CloudSpace name (upgrades from 1.0.3 and earlier).
+          Type: files; Name: "{app}\CloudSpace.exe"
+          Type: files; Name: "{group}\CloudSpace.lnk"
+          Type: files; Name: "{autodesktop}\CloudSpace.lnk"
+          Type: files; Name: "{userstartup}\CloudSpace.lnk"
+
           [Icons]
-          Name: "{group}\CloudSpace"; Filename: "{app}\CloudSpace.exe"
-          Name: "{autodesktop}\CloudSpace"; Filename: "{app}\CloudSpace.exe"
-          Name: "{userstartup}\CloudSpace"; Filename: "{app}\CloudSpace.exe"; Parameters: "--minimized"
+          Name: "{group}\Posta Drive"; Filename: "{app}\PostaDrive.exe"
+          Name: "{autodesktop}\Posta Drive"; Filename: "{app}\PostaDrive.exe"
+          Name: "{userstartup}\Posta Drive"; Filename: "{app}\PostaDrive.exe"; Parameters: "--minimized"
 
           [Run]
           Filename: "{app}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime..."; Flags: waituntilterminated skipifsilent; Check: not VCRedistInstalled
           Filename: "{app}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Installing WebView2 Runtime..."; Flags: waituntilterminated skipifsilent; Check: not WebView2Installed
-          Filename: "{app}\CloudSpace.exe"; Description: "Launch CloudSpace"; Flags: nowait postinstall skipifsilent
+          Filename: "{app}\PostaDrive.exe"; Description: "Launch Posta Drive"; Flags: nowait postinstall skipifsilent
 
           [Code]
           function VCRedistInstalled: Boolean;
@@ -104,11 +115,11 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: CloudSpace-Windows-Setup
-          path: CloudSpace-Setup.exe
+          name: PostaDrive-Windows-Setup
+          path: PostaDrive-Setup.exe
 
       - name: Upload raw build folder (for local signing + installer)
         uses: actions/upload-artifact@v4
         with:
-          name: CloudSpace-Build
+          name: PostaDrive-Build
           path: build/windows/x64/runner/Release/

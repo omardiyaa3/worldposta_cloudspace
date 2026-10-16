@@ -63,7 +63,7 @@ class DriveSidebar extends StatelessWidget {
             child: Row(children: [
               Image.asset('assets/logo.png', width: 40, height: 40),
               const SizedBox(width: 10),
-              const Text('CloudSpace',
+              const Text('Posta Drive',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.green800)),
             ]),
           ),

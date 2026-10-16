@@ -80,7 +80,7 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ name: 'CloudSpace Desktop', scopes: ['clouddrive:write'] })
+      body: JSON.stringify({ name: 'Posta Drive Desktop', scopes: ['clouddrive:write'] })
     });
     if (r.ok) {
       const j = await r.json();

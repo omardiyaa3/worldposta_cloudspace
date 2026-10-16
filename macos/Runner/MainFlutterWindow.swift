@@ -10,7 +10,7 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
     self.center()
     self.minSize = NSSize(width: 400, height: 300)
-    self.title = "CloudSpace"
+    self.title = "Posta Drive"
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 

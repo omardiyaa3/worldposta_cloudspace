@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.worldposta" "\0"
-            VALUE "FileDescription", "cloudspace_app" "\0"
+            VALUE "CompanyName", "WorldPosta" "\0"
+            VALUE "FileDescription", "Posta Drive" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "cloudspace_app" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.worldposta. All rights reserved." "\0"
-            VALUE "OriginalFilename", "cloudspace_app.exe" "\0"
-            VALUE "ProductName", "cloudspace_app" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 WorldPosta. All rights reserved." "\0"
+            VALUE "OriginalFilename", "PostaDrive.exe" "\0"
+            VALUE "ProductName", "Posta Drive" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

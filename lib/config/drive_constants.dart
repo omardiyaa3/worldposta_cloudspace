@@ -1,6 +1,6 @@
 // Constants for the WorldPosta Drive backend.
 class DriveConstants {
-  static const String appName = 'CloudSpace';
+  static const String appName = 'Posta Drive';
 
   /// Default Drive server (production). Users can override (e.g. a test
   /// instance) at sign-in.

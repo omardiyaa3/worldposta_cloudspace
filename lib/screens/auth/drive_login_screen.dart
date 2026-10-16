@@ -140,34 +140,75 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
   Widget build(BuildContext context) {
     final isWide = MediaQuery.of(context).size.width > 800;
     return Scaffold(
-      backgroundColor: AppColors.grey98,
+      backgroundColor: AppColors.page,
       body: Row(
         children: [
           if (isWide)
             Expanded(
               flex: 5,
+              // Same brand panel as the web sign-in page (ADLogin.tsx).
               child: Container(
-                color: AppColors.azure17,
-                padding: const EdgeInsets.all(48),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF1D2A6B), Color(0xFF293C51), Color(0xFF3D6B1F)],
+                    stops: [0, 0.45, 1],
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 48),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(children: [
-                      Image.asset('assets/logo.png', width: 44, height: 44),
+                      Image.asset('assets/logo.png', width: 52, height: 52),
                       const SizedBox(width: 12),
-                      const Text('CloudSpace',
-                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.white)),
+                      const Text('Posta Drive',
+                          style: TextStyle(
+                              fontFamily: 'PublicSans', fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.white)),
                     ]),
                     const Spacer(),
-                    const Text('Your files.\nAnywhere.\nAlways in sync.',
+                    const Text('Your work files, safe and always with you.',
                         style: TextStyle(
-                            fontSize: 38, fontWeight: FontWeight.w700, color: AppColors.white, height: 1.2)),
-                    const SizedBox(height: 16),
-                    Text('Access, share, and collaborate on your files from any device. Powered by WorldPosta.',
-                        style: TextStyle(fontSize: 15, color: AppColors.white.withValues(alpha: 0.6), height: 1.5)),
+                            fontFamily: 'PublicSans',
+                            fontSize: 34,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.white,
+                            height: 1.2,
+                            letterSpacing: -0.4)),
+                    const SizedBox(height: 28),
+                    for (final h in const [
+                      ('All your files, one place', 'Upload, organise and find anything in seconds.'),
+                      ('Work together', 'Share with colleagues or outside partners, with the access you choose.'),
+                      ('Edit Office documents', 'Word, Excel and PowerPoint, right in the app.'),
+                    ]) ...[
+                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Container(
+                          width: 26,
+                          height: 26,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                              color: AppColors.white.withValues(alpha: 0.14), shape: BoxShape.circle),
+                          child: const Icon(Icons.check, size: 15, color: AppColors.green500),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(h.$1,
+                                style: const TextStyle(
+                                    fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.white)),
+                            const SizedBox(height: 2),
+                            Text(h.$2,
+                                style: TextStyle(
+                                    fontSize: 14, color: AppColors.white.withValues(alpha: 0.78), height: 1.45)),
+                          ]),
+                        ),
+                      ]),
+                      const SizedBox(height: 18),
+                    ],
                     const Spacer(),
-                    Text('worldposta.com',
-                        style: TextStyle(fontSize: 13, color: AppColors.white.withValues(alpha: 0.35))),
+                    Text('Posta Drive by WorldPosta',
+                        style: TextStyle(fontSize: 13, color: AppColors.white.withValues(alpha: 0.55))),
                   ],
                 ),
               ),
@@ -187,13 +228,17 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
                         Center(child: Image.asset('assets/logo.png', width: 56, height: 56)),
                         const SizedBox(height: 12),
                         const Center(
-                            child: Text('CloudSpace',
-                                style:
-                                    TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.green800))),
+                            child: Text('Posta Drive',
+                                style: TextStyle(
+                                    fontFamily: 'PublicSans',
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.heading))),
                         const SizedBox(height: 32),
                       ],
-                      const Text('Welcome back',
-                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.heading)),
+                      const Text('Sign in',
+                          style: TextStyle(
+                              fontFamily: 'PublicSans', fontSize: 26, fontWeight: FontWeight.w700, color: AppColors.heading)),
                       const SizedBox(height: 6),
                       const Text('Sign in with your work account.',
                           style: TextStyle(fontSize: 14, color: AppColors.body)),

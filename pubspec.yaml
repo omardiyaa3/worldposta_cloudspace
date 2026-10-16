@@ -40,6 +40,8 @@ dev_dependencies:
   flutter_native_splash: ^2.4.0
 
 flutter_launcher_icons:
+  # Posta Drive cloud (from the web app). iOS/Android: on white (iOS icons
+  # can't be transparent); macOS: Big Sur rounded square; Windows: free-form.
   android: true
   ios: true
   image_path: "assets/logo_flat.png"
@@ -47,11 +49,16 @@ flutter_launcher_icons:
   min_sdk_android: 21
   macos:
     generate: true
-    image_path: "assets/logo_flat.png"
+    image_path: "assets/logo_macos.png"
+  windows:
+    generate: true
+    image_path: "assets/logo_windows.png"
+    icon_size: 256
 
 flutter_native_splash:
-  color: "#F8FAFC"
+  color: "#f3f5f7"
   image: "assets/logo.png"
+  color_dark: "#0F1419"
   android: true
   ios: true
 
@@ -65,12 +72,20 @@ flutter:
   assets:
     - assets/logo.png
   fonts:
-    - family: Inter
+    # The web app's fonts: Heebo (text) and Public Sans (headings), bundled so
+    # they work offline. Both SIL Open Font License (Google Fonts).
+    - family: Heebo
       fonts:
-        - asset: fonts/Inter-Regular.ttf
-        - asset: fonts/Inter-Medium.ttf
+        - asset: fonts/Heebo-Regular.ttf
+        - asset: fonts/Heebo-Medium.ttf
           weight: 500
-        - asset: fonts/Inter-SemiBold.ttf
+        - asset: fonts/Heebo-SemiBold.ttf
           weight: 600
-        - asset: fonts/Inter-Bold.ttf
+        - asset: fonts/Heebo-Bold.ttf
+          weight: 700
+    - family: PublicSans
+      fonts:
+        - asset: fonts/PublicSans-SemiBold.ttf
+          weight: 600
+        - asset: fonts/PublicSans-Bold.ttf
           weight: 700

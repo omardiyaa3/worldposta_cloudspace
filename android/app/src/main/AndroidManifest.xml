@@ -7,7 +7,7 @@
          Android 11+ needs All-files access; ≤10 uses legacy external storage. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
     <application
-        android:label="CloudSpace"
+        android:label="Posta Drive"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true"

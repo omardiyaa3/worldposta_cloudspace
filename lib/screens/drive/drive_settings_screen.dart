@@ -82,7 +82,7 @@ class DriveSettingsScreen extends StatelessWidget {
         builder: (ctx) => AlertDialog(
           title: const Text('Sync folder'),
           content: Text(
-            'On this device, apps can’t sync to an arbitrary folder. CloudSpace will '
+            'On this device, apps can’t sync to an arbitrary folder. Posta Drive will '
             'sync to its own folder — you can open it in $where.',
           ),
           actions: [
