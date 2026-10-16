@@ -1,7 +1,7 @@
 name: cloudspace_app
 description: "CloudSpace - Your cloud, your way."
 publish_to: 'none'
-version: 1.0.2+9
+version: 1.0.3+10
 
 environment:
   sdk: ^3.9.2
@@ -57,6 +57,11 @@ flutter_native_splash:
 
 flutter:
   uses-material-design: true
+  # CocoaPods, not Swift Package Manager: flutter_native_splash's SwiftPM
+  # package is invalid ("public headers directory path"), which made the
+  # automatic SwiftPM migration fail every iOS/macOS build.
+  config:
+    enable-swift-package-manager: false
   assets:
     - assets/logo.png
   fonts:

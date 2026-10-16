@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -39,12 +40,19 @@ void main(List<String> args) async {
   runApp(const CloudSpaceApp());
 }
 
-/// Accept the Drive's TLS cert on worldposta hosts (covers self-signed dev).
+/// Debug builds only: accept a self-signed certificate on WorldPosta dev hosts.
+/// Release builds always verify TLS — production has a public certificate, and
+/// the old "host contains worldposta.com" rule also matched look-alike hosts
+/// (e.g. evil-worldposta.com) and any interceptor's certificate.
 class _CloudSpaceHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context)
-      ..badCertificateCallback = (X509Certificate cert, String host, int port) => host.contains('worldposta.com');
+    final client = super.createHttpClient(context);
+    if (kDebugMode) {
+      client.badCertificateCallback = (X509Certificate cert, String host, int port) =>
+          host == 'worldposta.com' || host.endsWith('.worldposta.com');
+    }
+    return client;
   }
 }
 

@@ -2,8 +2,9 @@
 class DriveConstants {
   static const String appName = 'CloudSpace';
 
-  /// Default Drive server. Users can override (e.g. a dev instance) at sign-in.
-  static const String defaultServerUrl = 'https://portal.worldposta.com:2023';
+  /// Default Drive server (production). Users can override (e.g. a test
+  /// instance) at sign-in.
+  static const String defaultServerUrl = 'https://drive.worldposta.com';
 
   /// Where a user mints a `dk_` token in the web UI — shown on the login screen.
   static const String tokenHelpPath = '/me/security';

@@ -48,10 +48,13 @@ jobs:
 
       - name: Create Inno Setup script
         run: |
+          # Installer version = pubspec.yaml version (was hard-coded 1.0.0).
+          $appVersion = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
+          Write-Host "Installer version $appVersion"
           @"
           [Setup]
           AppName=CloudSpace
-          AppVersion=1.0.0
+          AppVersion=$appVersion
           AppPublisher=WorldPosta
           DefaultDirName={autopf}\CloudSpace
           DefaultGroupName=CloudSpace
