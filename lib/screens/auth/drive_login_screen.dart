@@ -195,7 +195,7 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
                       const Text('Welcome back',
                           style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.heading)),
                       const SizedBox(height: 6),
-                      const Text('Sign in with your WorldPosta account.',
+                      const Text('Sign in with your work account.',
                           style: TextStyle(fontSize: 14, color: AppColors.body)),
                       const SizedBox(height: 24),
 
@@ -206,7 +206,7 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _busy ? null : _ssoLogin,
                           icon: const Icon(Icons.login, size: 20),
-                          label: const Text('Sign in with WorldPosta',
+                          label: const Text('Sign in',
                               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.green700,

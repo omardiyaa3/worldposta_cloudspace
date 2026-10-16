@@ -61,6 +61,13 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
     super.initState();
     DriveAuthModeProbe.fetch(_base).then((mode) {
       if (!mounted) return;
+      if (mode == DriveAuthMode.unavailable) {
+        setState(() {
+          _loading = false;
+          _error = "Can't reach the Drive server. Check the address and your connection, then try again.";
+        });
+        return;
+      }
       setState(() => _startUrl = mode == DriveAuthMode.ad ? '$_base/login?return_to=%2F' : _ssoLoginUrl);
     });
   }

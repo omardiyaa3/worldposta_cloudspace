@@ -6,7 +6,7 @@ class DriveConstants {
   static const String defaultServerUrl = 'https://portal.worldposta.com:2023';
 
   /// Where a user mints a `dk_` token in the web UI — shown on the login screen.
-  static const String tokenHelpPath = '/settings/security';
+  static const String tokenHelpPath = '/me/security';
 
   /// WorldPosta SSO login base. Opening it directly (with a return_to back to the
   /// Drive) skips loading the Drive SPA first, so the login page appears fast.

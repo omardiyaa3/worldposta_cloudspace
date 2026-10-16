@@ -23,11 +23,10 @@ void main() {
     await s.close(force: true);
   });
 
-  test('sso mode, older servers (404) and garbage all mean sso', () async {
+  test('sso mode and older servers (404) mean sso', () async {
     for (final c in [
       [200, jsonEncode({'data': {'mode': 'sso'}})],
       [404, '{"error":{"code":"not_found"}}'],
-      [200, 'not json'],
     ]) {
       final s = await _serve(c[0] as int, c[1] as String);
       expect(await DriveAuthModeProbe.fetch('http://127.0.0.1:${s.port}'), DriveAuthMode.sso);
@@ -35,8 +34,16 @@ void main() {
     }
   });
 
-  test('unreachable server falls back to sso', () async {
-    expect(await DriveAuthModeProbe.fetch('http://127.0.0.1:1'), DriveAuthMode.sso);
+  test('errors never guess sso: unavailable', () async {
+    for (final c in [
+      [500, '{}'],
+      [200, 'not json'],
+    ]) {
+      final s = await _serve(c[0] as int, c[1] as String);
+      expect(await DriveAuthModeProbe.fetch('http://127.0.0.1:${s.port}'), DriveAuthMode.unavailable);
+      await s.close(force: true);
+    }
+    expect(await DriveAuthModeProbe.fetch('http://127.0.0.1:1'), DriveAuthMode.unavailable);
   });
 
 }

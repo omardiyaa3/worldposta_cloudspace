@@ -62,6 +62,9 @@ class DriveDesktopSso {
       // AD mode: open the desktop endpoint directly — the Drive sends the
       // browser to its own login page and back. SSO mode: go through the SSO.
       final mode = await DriveAuthModeProbe.fetch(base);
+      if (mode == DriveAuthMode.unavailable) {
+        throw DesktopSsoException("Can't reach the Drive server. Check the address and your connection, then try again.");
+      }
       final authUrl = mode == DriveAuthMode.ad
           ? Uri.parse(endpoint)
           : Uri.parse(
