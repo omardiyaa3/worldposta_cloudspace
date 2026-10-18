@@ -75,7 +75,7 @@ class DriveDashboard extends StatelessWidget {
             const SizedBox(width: 16),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('WorldPosta Drive', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.w600, fontSize: 15)),
+                const Text('Posta Drive', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.w600, fontSize: 15)),
                 Text('Your cloud storage, secured and simplified.',
                     style: TextStyle(color: AppColors.white.withValues(alpha: 0.7), fontSize: 13)),
               ]),

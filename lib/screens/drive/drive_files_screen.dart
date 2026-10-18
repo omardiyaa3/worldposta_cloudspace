@@ -950,10 +950,18 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   }
 
   Widget _header() {
+    final title = (_isFiles || _parentId != null)
+        ? _breadcrumb()
+        : Text(_title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.heading));
+    // Phones: the folder path gets its own line — beside the toolbar icons it
+    // was squeezed to a letter or two.
+    final narrow = MediaQuery.of(context).size.width < 600;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-      child: Row(children: [
-        Expanded(child: (_isFiles || _parentId != null) ? _breadcrumb() : Text(_title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.heading))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      if (narrow) Padding(padding: const EdgeInsets.only(bottom: 4), child: title),
+      Row(children: [
+        if (narrow) const Spacer() else Expanded(child: title),
         if (widget.mode == DriveViewMode.shared && _parentId == null) ...[
           _toggleChip('With me', !_showSharedByMe, () => setState(() { _showSharedByMe = false; _load(); })),
           const SizedBox(width: 6),
@@ -1003,6 +1011,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
           IconButton(icon: const Icon(Icons.create_new_folder_outlined, size: 20, color: AppColors.green800), tooltip: 'New folder', onPressed: _createFolder),
           IconButton(icon: const Icon(Icons.note_add_outlined, size: 20, color: AppColors.green800), tooltip: 'New file', onPressed: _createFile),
         ],
+      ]),
       ]),
     );
   }

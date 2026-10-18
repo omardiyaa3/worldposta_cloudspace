@@ -31,6 +31,20 @@ Future<void> showDriveShareSheet(BuildContext context, DriveFile file) {
   );
 }
 
+/// A person with their own grant on this file (e.g. the owner) also shows up
+/// as inherited from the parent folder; list them once, by their own grant.
+@visibleForTesting
+List<DrivePermission> accessListWithoutRepeats(List<DrivePermission> perms) {
+  final direct = {for (final p in perms) if (!p.isInherited) '${p.subjectType}:${p.subjectId}'};
+  final seen = <String>{};
+  return [
+    for (final p in perms)
+      if (!(p.isInherited && direct.contains('${p.subjectType}:${p.subjectId}')) &&
+          seen.add('${p.subjectType}:${p.subjectId}:${p.isInherited}'))
+        p,
+  ];
+}
+
 class DriveShareSheet extends StatefulWidget {
   final DriveFile file;
   const DriveShareSheet({super.key, required this.file});
@@ -88,7 +102,7 @@ class _DriveShareSheetState extends State<DriveShareSheet> {
       ]);
       if (mounted) {
         setState(() {
-          _perms = r[0] as List<DrivePermission>;
+          _perms = accessListWithoutRepeats(r[0] as List<DrivePermission>);
           _links = (r[1] as List<DriveShare>).where((s) => s.resourceId == widget.file.id).toList();
           _allUsers = r[2] as List<DriveUser>;
           _loading = false;
