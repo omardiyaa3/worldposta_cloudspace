@@ -48,6 +48,9 @@ class DriveFile {
   final int? editorsCount;
   final DateTime? expiresAt;
   final String? permissionId;
+  /// Set on rows from the Shortcuts list: the shortcut's own id (the row's `id`
+  /// is the target file's).
+  final String? shortcutId;
   final DriveRole? myRole;
   final bool? canEdit;
 
@@ -79,6 +82,7 @@ class DriveFile {
     this.editorsCount,
     this.expiresAt,
     this.permissionId,
+    this.shortcutId,
     this.myRole,
     this.canEdit,
     this.deletedAt,
@@ -110,6 +114,7 @@ class DriveFile {
       editorsCount: j['editors_count'] is num ? (j['editors_count'] as num).toInt() : null,
       expiresAt: ts(j['expires_at']),
       permissionId: j['permission_id'] as String?,
+      shortcutId: j['shortcut_id'] as String?,
       myRole: DriveRoleX.fromWire(j['my_role'] as String?),
       canEdit: j['can_edit'] as bool?,
       deletedAt: ts(j['deleted_at']),
@@ -163,6 +168,7 @@ class DriveFile {
         editorsCount: editorsCount,
         expiresAt: expiresAt,
         permissionId: permissionId,
+        shortcutId: shortcutId,
         myRole: myRole,
         canEdit: canEdit ?? this.canEdit,
         deletedAt: deletedAt,

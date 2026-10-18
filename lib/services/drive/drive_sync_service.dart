@@ -28,6 +28,7 @@ import '../../models/drive_file.dart';
 import 'drive_api.dart';
 import 'drive_client.dart';
 import 'drive_sync_reconcile.dart';
+import 'folder_access.dart';
 
 export 'drive_sync_reconcile.dart'; // re-export pure types for existing imports
 
@@ -116,6 +117,7 @@ class DriveSyncService extends ChangeNotifier {
     _direction = SyncDirection.values.firstWhere((e) => e.name == prefs.getString(_pk('direction')), orElse: () => SyncDirection.twoWay);
     _periodic = prefs.getBool(_pk('periodic')) ?? false;
     _intervalSeconds = prefs.getInt(_pk('interval')) ?? 30;
+    await _restoreFolderAccess();
     if (_folder != null) {
       await _reanchorMobileFolder(); // fix stale app-container paths (see below)
       await _loadJournal();
@@ -151,6 +153,24 @@ class DriveSyncService extends ChangeNotifier {
     } catch (_) {/* leave the folder as-is; sync will surface the error */}
   }
 
+  // macOS (sandboxed): reopen the user's folder through its bookmark. Without
+  // one (or if it no longer resolves) the folder isn't reachable — sync stays
+  // off until the user picks the folder again.
+  Future<void> _restoreFolderAccess() async {
+    if (_folder == null || !Platform.isMacOS) return;
+    final prefs = await SharedPreferences.getInstance();
+    final mark = prefs.getString(_pk('folderBookmark'));
+    final r = mark == null ? null : await FolderAccess.resolve(mark);
+    if (r == null) {
+      _log2('no access to $_folder any more — choose the sync folder again');
+      _enabled = false;
+      _status = 'Choose your sync folder again';
+      return;
+    }
+    _folder = r.path;
+    if (r.bookmark != mark) await prefs.setString(_pk('folderBookmark'), r.bookmark);
+  }
+
   Future<void> _persistConfig() async {
     final prefs = await SharedPreferences.getInstance();
     if (_folder != null) {
@@ -175,6 +195,15 @@ class DriveSyncService extends ChangeNotifier {
     _remoteParentId = remoteParentId;
     final dir = Directory(path);
     if (!await dir.exists()) await dir.create(recursive: true);
+    if (Platform.isMacOS) {
+      final mark = await FolderAccess.bookmark(path);
+      final prefs = await SharedPreferences.getInstance();
+      if (mark != null) {
+        await prefs.setString(_pk('folderBookmark'), mark);
+      } else {
+        await prefs.remove(_pk('folderBookmark'));
+      }
+    }
     await _loadJournal();
     await _persistConfig();
     notifyListeners();

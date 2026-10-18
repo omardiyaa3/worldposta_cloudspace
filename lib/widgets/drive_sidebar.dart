@@ -20,6 +20,8 @@ class DriveSidebar extends StatelessWidget {
   final int totalBytes;
   final VoidCallback onNewPressed;
   final ValueChanged<String> onNavigate;
+  /// Show "Google Drive" (the server has Google import set up).
+  final bool showGoogleDrive;
 
   const DriveSidebar({
     super.key,
@@ -28,6 +30,7 @@ class DriveSidebar extends StatelessWidget {
     required this.totalBytes,
     required this.onNewPressed,
     required this.onNavigate,
+    this.showGoogleDrive = false,
   });
 
   static const _items = [
@@ -36,6 +39,10 @@ class DriveSidebar extends StatelessWidget {
     DriveSidebarItem(icon: Icons.people_outline, label: 'Shared with me', route: 'shared'),
     DriveSidebarItem(icon: Icons.access_time, label: 'Recent', route: 'recent'),
     DriveSidebarItem(icon: Icons.star_outline, label: 'Starred', route: 'starred'),
+    DriveSidebarItem(icon: Icons.push_pin_outlined, label: 'Pinned', route: 'pinned'),
+    DriveSidebarItem(icon: Icons.shortcut, label: 'Shortcuts', route: 'shortcuts'),
+    DriveSidebarItem(icon: Icons.sell_outlined, label: 'Tags', route: 'tags'),
+    DriveSidebarItem(icon: Icons.add_to_drive, label: 'Google Drive', route: 'google'),
     DriveSidebarItem(icon: Icons.delete_outline, label: 'Trash', route: 'trash'),
     DriveSidebarItem(icon: Icons.history, label: 'Activity', route: 'activity'),
   ];
@@ -117,6 +124,7 @@ class DriveSidebar extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               children: _items
+                  .where((item) => item.route != 'google' || showGoogleDrive)
                   .map((item) => _NavItem(
                         icon: item.icon,
                         label: item.label,

@@ -36,20 +36,22 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>CloudSpace needs camera access to take photos for upload to your cloud storage.</string>
+	<string>Posta Drive uses the camera only when a page you open in the app, such as an online document, asks for it.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>CloudSpace needs access to your documents to sync files with your cloud storage.</string>
+	<string>Posta Drive accesses your documents to sync the files you choose with your Drive.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>CloudSpace needs access to downloads to save files from your cloud storage.</string>
+	<string>Posta Drive saves files you download from your Drive to your Downloads folder.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>CloudSpace needs microphone access for voice and video calls in Talk.</string>
+	<string>Posta Drive uses the microphone only when a page you open in the app, such as an online document, asks for it.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>CloudSpace needs access to your photo library to upload photos and images to your cloud storage.</string>
+	<string>Posta Drive accesses your photos only when you choose photos or videos to upload to your Drive.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

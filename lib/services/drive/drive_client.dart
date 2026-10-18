@@ -175,6 +175,16 @@ class DriveClient {
     throw _errorFromBytes(bytes, sc);
   }
 
+  /// POST that answers with a file (e.g. POST /files/{id}/convert?to=pdf).
+  Future<Uint8List> postForBytes(String path, {Map<String, dynamic>? query}) async {
+    final req = http.Request('POST', _uri(path, query));
+    req.headers.addAll(_authHeaders);
+    final streamed = await _http.send(req);
+    final bytes = await streamed.stream.toBytes();
+    if (streamed.statusCode == 200) return bytes;
+    throw _errorFromBytes(bytes, streamed.statusCode);
+  }
+
   /// Opens a streamed GET (for progress-tracked / large downloads).
   Future<http.StreamedResponse> openDownload(String path, {int? rangeStart}) async {
     final req = http.Request('GET', _uri(path));

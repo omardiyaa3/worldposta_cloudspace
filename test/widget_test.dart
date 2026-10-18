@@ -1,4 +1,4 @@
-// Smoke test: the token-paste login screen renders and validates input.
+// Smoke test: the login screen renders and the token sign-in validates input.
 // (The full app can't be pumped headless — it needs window/tray/secure-storage
 // plugins. Behavior is covered by drive_account_manager_test.dart + the live
 // harness in tool/verify_drive.dart.)
@@ -45,13 +45,14 @@ void main() {
       ),
     );
 
-    expect(find.text('Connect your Drive'), findsOneWidget);
-    expect(find.text('Sign In'), findsOneWidget);
+    expect(find.text('Sign in with your work account.'), findsOneWidget);
 
-    // Entering something that isn't a dk_ token surfaces a validation error
-    // without ever calling the (throwing) validator.
+    // Advanced token sign-in: something that isn't a dk_ token surfaces a
+    // validation error without ever calling the (throwing) validator.
+    await tester.tap(find.text('Advanced: use an access token'));
+    await tester.pump();
     await tester.enterText(find.byType(TextField).first, 'not-a-token');
-    await tester.tap(find.text('Sign In'));
+    await tester.tap(find.text('Sign in with token'));
     await tester.pump();
     expect(find.textContaining('access token'), findsWidgets);
   });

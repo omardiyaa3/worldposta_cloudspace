@@ -8,7 +8,7 @@
 PRODUCT_NAME = Posta Drive
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.worldposta.cloudspaceApp
+PRODUCT_BUNDLE_IDENTIFIER = com.worldposta.cloudspace
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.worldposta. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 WorldPosta. All rights reserved.

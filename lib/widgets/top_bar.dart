@@ -9,6 +9,10 @@ class TopBar extends StatefulWidget {
   final VoidCallback? onProfileTap;
   final VoidCallback? onRefreshTap;
   final ValueChanged<String>? onSearch;
+  /// Notifications bell (shown before Settings), and the mobile menu button
+  /// that opens the navigation drawer.
+  final Widget? notifications;
+  final VoidCallback? onMenuTap;
   /// Optional shell-owned controller so the parent can read/clear the query
   /// (e.g. clear search when navigating away). Falls back to an internal one.
   final TextEditingController? searchController;
@@ -23,6 +27,8 @@ class TopBar extends StatefulWidget {
     this.onRefreshTap,
     this.onSearch,
     this.searchController,
+    this.notifications,
+    this.onMenuTap,
   });
 
   @override
@@ -66,6 +72,14 @@ class _TopBarState extends State<TopBar> {
         height: 56,
         child: Row(
         children: [
+          if (widget.onMenuTap != null && !(isMobile && _searchExpanded))
+            IconButton(
+              onPressed: widget.onMenuTap,
+              icon: const Icon(Icons.menu, color: AppColors.azure47),
+              tooltip: 'Menu',
+              padding: isMobile ? const EdgeInsets.all(6) : const EdgeInsets.all(8),
+              constraints: isMobile ? const BoxConstraints() : null,
+            ),
           // Search bar — collapsible on mobile
           if (!isMobile)
             Expanded(
@@ -150,6 +164,8 @@ class _TopBarState extends State<TopBar> {
               tooltip: 'Refresh',
             ),
 
+
+          if (widget.notifications != null) widget.notifications!,
 
           // Settings
           IconButton(

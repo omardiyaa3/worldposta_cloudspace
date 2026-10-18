@@ -323,14 +323,18 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Row(children: [
+                        Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 12,
+                          runSpacing: 8,
+                          children: [
                           TextButton.icon(
                             onPressed: _openTokenHelp,
                             icon: const Icon(Icons.open_in_new, size: 15, color: AppColors.green700),
                             label: const Text('Where do I get a token?', style: TextStyle(color: AppColors.green700, fontSize: 13)),
                             style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 0)),
                           ),
-                          const Spacer(),
                           ElevatedButton(
                             onPressed: _busy ? null : _signIn,
                             child: _busy

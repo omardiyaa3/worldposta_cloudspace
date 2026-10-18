@@ -15,7 +15,12 @@ import 'drive_account.dart';
 /// platforms/dev where secure storage is unavailable (mirrors the resilience of
 /// the old AuthService, but only ever stores tokens — never a password).
 class SecureTokenStore implements TokenStore {
-  final FlutterSecureStorage _secure = const FlutterSecureStorage();
+  // macOS: the classic keychain. The data-protection keychain (the plugin's
+  // default) needs a keychain-access-group entitlement + profile; without it
+  // every write failed and tokens silently fell back to prefs.
+  final FlutterSecureStorage _secure = const FlutterSecureStorage(
+    mOptions: MacOsOptions(useDataProtectionKeyChain: false),
+  );
   bool _useSecure = true;
 
   String _key(String accountId) => 'drive_token_$accountId';

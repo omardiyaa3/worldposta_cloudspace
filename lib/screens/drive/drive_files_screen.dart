@@ -21,10 +21,11 @@ import '../../services/drive/drive_cache.dart';
 import '../../services/drive/drive_client.dart';
 import '../../widgets/file_type_badge.dart';
 import 'drive_open_file.dart';
+import 'drive_file_actions.dart';
 import 'drive_file_sheets.dart';
 import 'drive_share_sheet.dart';
 
-enum DriveViewMode { files, recent, starred, shared, trash }
+enum DriveViewMode { files, recent, starred, shared, trash, pinned, shortcuts, tag }
 
 enum _SortCol { name, date, size }
 
@@ -32,7 +33,8 @@ class DriveFilesScreen extends StatefulWidget {
   final DriveViewMode mode;
   final ValueChanged<Future<void> Function()>? onRefreshReady;
   final ValueChanged<VoidCallback>? onNewMenuReady; // hands the shell a "New" trigger
-  const DriveFilesScreen({super.key, this.mode = DriveViewMode.files, this.onRefreshReady, this.onNewMenuReady});
+  final DriveTag? tag; // mode == tag: the tag whose files are listed
+  const DriveFilesScreen({super.key, this.mode = DriveViewMode.files, this.onRefreshReady, this.onNewMenuReady, this.tag});
 
   @override
   State<DriveFilesScreen> createState() => _DriveFilesScreenState();
@@ -48,6 +50,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   bool _busy = false;
   String? _error;
   bool _showSharedByMe = false;
+  Set<String> _pinnedIds = {}; // for the Pin / Unpin menu item
 
   // Upload progress (tus).
   bool _uploading = false;
@@ -97,6 +100,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   void initState() {
     super.initState();
     _load();
+    _loadPinned();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.onRefreshReady?.call(_refresh);
       widget.onNewMenuReady?.call(_showNewMenu);
@@ -138,6 +142,13 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
 
   String _friendly(Object e) => friendlyError(e);
 
+  Future<void> _loadPinned() async {
+    try {
+      final ids = (await _api.listPinned()).map((f) => f.id).toSet();
+      if (mounted) setState(() => _pinnedIds = ids);
+    } catch (_) {/* best effort: the menu then offers "Pin" */}
+  }
+
   Future<void> _load() async {
     if (mounted) setState(() => _error = null);
     try {
@@ -168,6 +179,13 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
         case DriveViewMode.trash:
           items = _cache.trashFiles;
           if (items.isEmpty && !_cache.isFullyLoaded) items = await _api.listTrash();
+        case DriveViewMode.pinned:
+          items = await _api.listPinned();
+          _pinnedIds = items.map((f) => f.id).toSet();
+        case DriveViewMode.shortcuts:
+          items = await _api.listShortcuts();
+        case DriveViewMode.tag:
+          items = widget.tag == null ? <DriveFile>[] : await _api.listByTag(widget.tag!.id);
       }
       if (mounted) {
         setState(() {
@@ -248,6 +266,10 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
           await _cache.refreshShared();
         case DriveViewMode.trash:
           await _cache.refreshTrash();
+        case DriveViewMode.pinned:
+        case DriveViewMode.shortcuts:
+        case DriveViewMode.tag:
+          break; // listed live by _load
       }
     } catch (_) {}
     await _load();
@@ -597,6 +619,61 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   }
 
   Future<void> _share(DriveFile f) => showDriveShareSheet(context, f);
+
+  Future<void> _togglePin(DriveFile f) async {
+    final was = _pinnedIds.contains(f.id);
+    try {
+      if (was) {
+        await _api.unpin(f.id);
+      } else {
+        await _api.pin(f.id);
+      }
+      setState(() {
+        was ? _pinnedIds.remove(f.id) : _pinnedIds.add(f.id);
+        if (was && widget.mode == DriveViewMode.pinned) _files.removeWhere((x) => x.id == f.id);
+      });
+      _snack(was ? 'Unpinned "${f.name}"' : 'Pinned "${f.name}"');
+    } catch (e) {
+      _snack(_friendly(e), ok: false);
+    }
+  }
+
+  Future<void> _addShortcut(DriveFile f) async {
+    try {
+      await _api.addShortcut(f.id);
+      _cache.clearFolderCache(null); // shortcuts land in My Drive
+      _snack('Added a shortcut to "${f.name}" in My Drive');
+    } catch (e) {
+      _snack('Could not add shortcut: ${_friendly(e)}', ok: false);
+    }
+  }
+
+  Future<void> _removeShortcut(DriveFile f) async {
+    if (f.shortcutId == null) return;
+    try {
+      await _api.removeShortcut(f.shortcutId!);
+      setState(() => _files.removeWhere((x) => x.shortcutId == f.shortcutId));
+      if (_isFiles) _cache.clearFolderCache(_parentId);
+      _snack('Shortcut removed');
+    } catch (e) {
+      _snack(_friendly(e), ok: false);
+    }
+  }
+
+  Future<void> _exportAs(DriveFile f) async {
+    final targets = driveExportTargetsFor(f);
+    final fmt = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text('Export "${f.name}" as', overflow: TextOverflow.ellipsis),
+        children: [
+          for (final t in targets)
+            SimpleDialogOption(onPressed: () => Navigator.pop(ctx, t), child: Text(driveExportLabels[t] ?? t)),
+        ],
+      ),
+    );
+    if (fmt != null && mounted) await exportDriveFile(context, f, fmt);
+  }
 
   void _versions(DriveFile f) => showDriveVersionsSheet(context, f);
   void _comments(DriveFile f) => showDriveCommentsSheet(context, f);
@@ -955,6 +1032,9 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
         DriveViewMode.starred => 'Starred',
         DriveViewMode.shared => _showSharedByMe ? 'Shared by me' : 'Shared with me',
         DriveViewMode.trash => 'Trash',
+        DriveViewMode.pinned => 'Pinned',
+        DriveViewMode.shortcuts => 'Shortcuts',
+        DriveViewMode.tag => widget.tag?.name ?? 'Tag',
       };
 
   Widget _toggleChip(String label, bool active, VoidCallback onTap) => GestureDetector(
@@ -990,7 +1070,8 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   }
 
   Widget _emptyState() {
-    final needsPhase2 = widget.mode != DriveViewMode.files && !_cache.isFullyLoaded;
+    const live = {DriveViewMode.files, DriveViewMode.pinned, DriveViewMode.shortcuts, DriveViewMode.tag};
+    final needsPhase2 = !live.contains(widget.mode) && !_cache.isFullyLoaded;
     if (needsPhase2) {
       return ListView(children: const [
         SizedBox(height: 140),
@@ -1003,6 +1084,9 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
       DriveViewMode.shared => (Icons.share_outlined, 'Nothing shared'),
       DriveViewMode.recent => (Icons.access_time, 'No recent files'),
       DriveViewMode.files => (Icons.folder_open, 'This folder is empty'),
+      DriveViewMode.pinned => (Icons.push_pin_outlined, 'Nothing pinned yet'),
+      DriveViewMode.shortcuts => (Icons.shortcut, 'No shortcuts yet'),
+      DriveViewMode.tag => (Icons.sell_outlined, 'No files with this tag'),
     };
     return ListView(children: [
       const SizedBox(height: 100),
@@ -1089,6 +1173,13 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
       case 'activity': _activity(f);
       case 'expiration': _expiration(f);
       case 'delete': _delete(f);
+      case 'pin': _togglePin(f);
+      case 'shortcut': _addShortcut(f);
+      case 'unshortcut': _removeShortcut(f);
+      case 'tags': showDriveTagsSheet(context, f);
+      case 'email': showDriveEmailDialog(context, f);
+      case 'export': _exportAs(f);
+      case 'print': printDriveFile(context, f);
       case 'restore': _restore(f);
       case 'purge': _purge(f);
     }
@@ -1104,16 +1195,31 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
           if (!f.isDirectory) const PopupMenuItem(value: 'download', child: Row(children: [Icon(Icons.download, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Download')])),
           if (_canManage(f)) const PopupMenuItem(value: 'share', child: Row(children: [Icon(Icons.share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Share')])),
           PopupMenuItem(value: 'star', child: Row(children: [Icon(f.isStarred ? Icons.star : Icons.star_outline, size: 16, color: f.isStarred ? AppColors.fileSketch : AppColors.body), const SizedBox(width: 8), Text(f.isStarred ? 'Unstar' : 'Star')])),
-          if (_canWrite(f)) const PopupMenuItem(value: 'rename', child: Row(children: [Icon(Icons.edit, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Rename')])),
-          if (_canWrite(f)) const PopupMenuItem(value: 'move', child: Row(children: [Icon(Icons.drive_file_move_outline, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Move to…')])),
+          PopupMenuItem(value: 'pin', child: Row(children: [Icon(_pinnedIds.contains(f.id) ? Icons.push_pin : Icons.push_pin_outlined, size: 16, color: AppColors.body), const SizedBox(width: 8), Text(_pinnedIds.contains(f.id) ? 'Unpin' : 'Pin')])),
+          // A shortcut row carries the TARGET's id: renaming/moving/deleting it
+          // would change the original, so a shortcut only offers "Remove shortcut".
+          if (_canWrite(f) && f.shortcutId == null) const PopupMenuItem(value: 'rename', child: Row(children: [Icon(Icons.edit, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Rename')])),
+          if (_canWrite(f) && f.shortcutId == null) const PopupMenuItem(value: 'move', child: Row(children: [Icon(Icons.drive_file_move_outline, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Move to…')])),
           if (!f.isDirectory) const PopupMenuItem(value: 'copy', child: Row(children: [Icon(Icons.copy_all_outlined, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Make a copy')])),
+          if (f.shortcutId == null) const PopupMenuItem(value: 'shortcut', child: Row(children: [Icon(Icons.shortcut, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Add shortcut to My Drive')])),
+          if (_canWrite(f)) const PopupMenuItem(value: 'tags', child: Row(children: [Icon(Icons.sell_outlined, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Tags…')])),
+          if (!f.isDirectory) ...[
+            const PopupMenuDivider(),
+            const PopupMenuItem(value: 'email', child: Row(children: [Icon(Icons.email_outlined, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Send by email…')])),
+            if (driveExportTargetsFor(f).isNotEmpty) const PopupMenuItem(value: 'export', child: Row(children: [Icon(Icons.ios_share, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Export as…')])),
+            if (canPrintDriveFile(f)) const PopupMenuItem(value: 'print', child: Row(children: [Icon(Icons.print_outlined, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Print…')])),
+          ],
           const PopupMenuDivider(),
           if (!f.isDirectory) const PopupMenuItem(value: 'versions', child: Row(children: [Icon(Icons.history, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Version history')])),
           const PopupMenuItem(value: 'comments', child: Row(children: [Icon(Icons.comment_outlined, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Comments')])),
           const PopupMenuItem(value: 'activity', child: Row(children: [Icon(Icons.history_toggle_off, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Activity')])),
           if (_canManage(f)) const PopupMenuItem(value: 'expiration', child: Row(children: [Icon(Icons.event_busy, size: 16, color: AppColors.body), SizedBox(width: 8), Text('Set expiration…')])),
-          if (_canWrite(f)) const PopupMenuDivider(),
-          if (_canWrite(f)) const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Delete', style: TextStyle(color: AppColors.filePdf))])),
+          if (f.shortcutId != null) ...[
+            const PopupMenuDivider(),
+            const PopupMenuItem(value: 'unshortcut', child: Row(children: [Icon(Icons.link_off, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Remove shortcut', style: TextStyle(color: AppColors.filePdf))])),
+          ],
+          if (_canWrite(f) && f.shortcutId == null) const PopupMenuDivider(),
+          if (_canWrite(f) && f.shortcutId == null) const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 16, color: AppColors.filePdf), SizedBox(width: 8), Text('Delete', style: TextStyle(color: AppColors.filePdf))])),
         ];
 
   Widget _menu(DriveFile f) => PopupMenuButton<String>(
@@ -1134,13 +1240,24 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   }
 }
 
+/// Pick a folder in My Drive: returns 'root' for the top level, a folder id, or
+/// null if cancelled. Used by Move and by "Copy to Posta Drive" (Google Drive).
+Future<String?> pickDriveFolder(BuildContext context, DriveApi api,
+        {required String title, required String actionLabel, String? excludeId}) =>
+    showDialog<String>(
+      context: context,
+      builder: (_) => _MovePicker(api: api, movingId: excludeId ?? '', fileName: '', title: title, actionLabel: actionLabel),
+    );
+
 /// Folder picker for Move — navigates the drive tree and returns the chosen
 /// destination ('root' for the drive root, or a folder uuid), null on cancel.
 class _MovePicker extends StatefulWidget {
   final DriveApi api;
   final String movingId; // exclude the item being moved
   final String fileName;
-  const _MovePicker({required this.api, required this.movingId, required this.fileName});
+  final String? title;
+  final String actionLabel;
+  const _MovePicker({required this.api, required this.movingId, required this.fileName, this.title, this.actionLabel = 'Move here'});
 
   @override
   State<_MovePicker> createState() => _MovePickerState();
@@ -1186,7 +1303,7 @@ class _MovePickerState extends State<_MovePicker> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('Move "${widget.fileName}"', overflow: TextOverflow.ellipsis),
+      title: Text(widget.title ?? 'Move "${widget.fileName}"', overflow: TextOverflow.ellipsis),
       content: SizedBox(
         width: 400,
         height: 380,
@@ -1219,7 +1336,7 @@ class _MovePickerState extends State<_MovePicker> {
         ElevatedButton.icon(
           onPressed: () => Navigator.pop(context, _parentId ?? 'root'),
           icon: const Icon(Icons.check, size: 18),
-          label: Text('Move here'),
+          label: Text(widget.actionLabel),
           style: ElevatedButton.styleFrom(backgroundColor: AppColors.green800, foregroundColor: AppColors.white),
         ),
       ],

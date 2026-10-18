@@ -316,6 +316,140 @@ class DriveComment {
       );
 }
 
+/// A user tag (GET /api/v1/tags, /files/{id}/tags).
+class DriveTag {
+  final String id;
+  final String name;
+  final String color; // CSS colour, e.g. "#4f46e5"
+  const DriveTag({required this.id, required this.name, required this.color});
+  factory DriveTag.fromJson(Map<String, dynamic> j) => DriveTag(
+        id: j['id'] as String,
+        name: (j['name'] as String?) ?? '',
+        color: (j['color'] as String?) ?? '',
+      );
+}
+
+/// An in-app notification (GET /api/v1/notifications).
+class DriveNotification {
+  final String id;
+  final String kind; // share, comment, mention, …
+  final String title;
+  final String body;
+  final String? resourceId;
+  final DateTime? createdAt;
+  final bool read;
+  const DriveNotification({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.body,
+    this.resourceId,
+    this.createdAt,
+    this.read = false,
+  });
+  factory DriveNotification.fromJson(Map<String, dynamic> j) => DriveNotification(
+        id: j['id'] as String,
+        kind: (j['kind'] as String?) ?? '',
+        title: (j['title'] as String?) ?? '',
+        body: (j['body'] as String?) ?? '',
+        resourceId: j['resource_id'] as String?,
+        createdAt: j['created_at'] is String ? DateTime.tryParse(j['created_at'] as String) : null,
+        read: j['read_at'] is String,
+      );
+  DriveNotification markedRead() => DriveNotification(
+      id: id, kind: kind, title: title, body: body, resourceId: resourceId, createdAt: createdAt, read: true);
+}
+
+/// The caller's Google Drive connection (GET /api/v1/imports/google/connection).
+class GoogleConnection {
+  final bool configured; // the server has Google import set up
+  final bool connected; // this user connected their Google account
+  final String? email;
+  const GoogleConnection({required this.configured, required this.connected, this.email});
+  factory GoogleConnection.fromJson(Map<String, dynamic> j) => GoogleConnection(
+        configured: j['configured'] == true,
+        connected: j['connected'] == true,
+        email: j['email'] as String?,
+      );
+}
+
+/// One Google Drive item the user gave Posta Drive access to
+/// (GET /api/v1/imports/google/browse).
+class GoogleItem {
+  final String id;
+  final String name;
+  final String mimeType;
+  final int size;
+  final DateTime? modifiedAt;
+  final bool isFolder;
+  final String webViewLink;
+  const GoogleItem({
+    required this.id,
+    required this.name,
+    required this.mimeType,
+    required this.size,
+    this.modifiedAt,
+    required this.isFolder,
+    required this.webViewLink,
+  });
+  factory GoogleItem.fromJson(Map<String, dynamic> j) {
+    final id = j['id'] as String;
+    final link = j['web_view_link'] as String?;
+    return GoogleItem(
+      id: id,
+      name: (j['name'] as String?) ?? '',
+      mimeType: (j['mime_type'] as String?) ?? '',
+      size: j['size'] is num ? (j['size'] as num).toInt() : int.tryParse('${j['size'] ?? ''}') ?? 0,
+      modifiedAt: j['modified_at'] is String ? DateTime.tryParse(j['modified_at'] as String) : null,
+      isFolder: j['is_folder'] == true,
+      // Older servers don't send the link; Google's open URL works for any id.
+      webViewLink: (link != null && link.isNotEmpty) ? link : 'https://drive.google.com/open?id=$id',
+    );
+  }
+}
+
+/// A page of Google items plus the token for the next page ("" = last page).
+class GooglePage {
+  final List<GoogleItem> items;
+  final String nextPageToken;
+  const GooglePage(this.items, this.nextPageToken);
+}
+
+/// Export targets per source extension — same table as the web
+/// (fileMenuParts.tsx EXPORT_TARGETS_BY_EXT): what Collabora can convert to.
+const Map<String, List<String>> driveExportTargets = {
+  'doc': ['pdf', 'docx', 'odt', 'html', 'txt'],
+  'docx': ['pdf', 'odt', 'html', 'txt'],
+  'rtf': ['pdf', 'docx', 'odt', 'html', 'txt'],
+  'odt': ['pdf', 'docx', 'html', 'txt'],
+  'txt': ['pdf', 'docx', 'odt', 'html'],
+  'html': ['pdf', 'docx', 'odt', 'txt'],
+  'htm': ['pdf', 'docx', 'odt', 'txt'],
+  'md': ['pdf', 'docx', 'odt', 'html', 'txt'],
+  'xls': ['pdf', 'xlsx', 'html'],
+  'xlsx': ['pdf', 'html'],
+  'ods': ['pdf', 'xlsx', 'html'],
+  'csv': ['pdf', 'xlsx', 'html'],
+  'ppt': ['pdf', 'pptx', 'html'],
+  'pptx': ['pdf', 'html'],
+  'odp': ['pdf', 'pptx', 'html'],
+  'pdf': ['docx', 'odt'],
+};
+
+const Map<String, String> driveExportLabels = {
+  'pdf': 'PDF (.pdf)',
+  'docx': 'Word (.docx)',
+  'xlsx': 'Excel (.xlsx)',
+  'pptx': 'PowerPoint (.pptx)',
+  'odt': 'OpenDocument (.odt)',
+  'html': 'HTML (.html)',
+  'txt': 'Plain text (.txt)',
+};
+
+/// Formats a file can be exported to (empty → no "Export as").
+List<String> driveExportTargetsFor(DriveFile f) =>
+    f.isDirectory ? const [] : (driveExportTargets[f.extension] ?? const []);
+
 /// Typed Drive API. One instance per account (wraps that account's client).
 class DriveApi {
   final DriveClient _c;
@@ -642,4 +776,97 @@ class DriveApi {
         onProgress: onProgress,
         isCancelled: isCancelled,
       );
+
+
+  // ── shortcuts / pinned ───────────────────────────────────────────────────
+
+  /// Shortcuts list (GET /api/v1/discovery/shortcuts); rows carry shortcutId.
+  Future<List<DriveFile>> listShortcuts() async => _items(await _c.get('/api/v1/discovery/shortcuts'));
+
+  /// Add a shortcut to [id] in My Drive (POST /files/{id}/shortcut).
+  Future<void> addShortcut(String id) async => _c.post('/api/v1/files/$id/shortcut', body: const {});
+
+  /// Remove a shortcut (never the target file).
+  Future<void> removeShortcut(String shortcutId) async => _c.delete('/api/v1/shortcuts/$shortcutId');
+
+  Future<List<DriveFile>> listPinned() async => _items(await _c.get('/api/v1/pinned'));
+  Future<void> pin(String id) async => _c.post('/api/v1/files/$id/pin');
+  Future<void> unpin(String id) async => _c.delete('/api/v1/files/$id/pin');
+
+  // ── tags ─────────────────────────────────────────────────────────────────
+
+  List<DriveTag> _tags(dynamic data) => (((data as Map?)?['items'] as List?) ?? const [])
+      .map((e) => DriveTag.fromJson(e as Map<String, dynamic>))
+      .toList();
+
+  Future<List<DriveTag>> listTags() async => _tags(await _c.get('/api/v1/tags'));
+
+  Future<DriveTag> createTag(String name) async =>
+      DriveTag.fromJson((await _c.post('/api/v1/tags', body: {'name': name})) as Map<String, dynamic>);
+
+  Future<List<DriveTag>> fileTags(String fileId) async => _tags(await _c.get('/api/v1/files/$fileId/tags'));
+
+  Future<void> attachTag(String fileId, String tagId) async =>
+      _c.post('/api/v1/files/$fileId/tags', body: {'tag_id': tagId});
+
+  Future<void> detachTag(String fileId, String tagId) async => _c.delete('/api/v1/files/$fileId/tags/$tagId');
+
+  /// Files carrying a tag, across all folders (GET /files?tag=).
+  Future<List<DriveFile>> listByTag(String tagId, {int limit = 200}) async =>
+      _items(await _c.get('/api/v1/files', query: {'tag': tagId, 'limit': limit}));
+
+  // ── notifications ──────────────────────────────────────────────────────────
+
+  Future<({List<DriveNotification> items, int unread})> notifications({int limit = 50}) async {
+    final data = await _c.get('/api/v1/notifications', query: {'limit': limit}) as Map?;
+    final items = ((data?['items'] as List?) ?? const [])
+        .map((e) => DriveNotification.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return (items: items, unread: (data?['unread'] as num?)?.toInt() ?? items.where((n) => !n.read).length);
+  }
+
+  Future<void> markNotificationRead(String id) async => _c.post('/api/v1/notifications/$id/read');
+  Future<void> markAllNotificationsRead() async => _c.post('/api/v1/notifications/read-all');
+
+  // ── send / export / print ─────────────────────────────────────────────────
+
+  /// Email a file (queued; attached when [attach]). Recipient needs no account.
+  Future<void> emailFile(String id, {required String to, String subject = '', String body = '', bool attach = true}) async =>
+      _c.post('/api/v1/files/$id/email', body: {'to': to, 'subject': subject, 'body': body, 'attach': attach});
+
+  /// Convert a file with Collabora (POST /files/{id}/convert?to=pdf|docx|…).
+  Future<Uint8List> convert(String id, String to) => _c.postForBytes('/api/v1/files/$id/convert', query: {'to': to});
+
+  /// Print-ready PDF of an Office file (GET /files/{id}/preview/pdf).
+  Future<Uint8List> previewPdf(String id) => _c.getBytes('/api/v1/files/$id/preview/pdf');
+
+  // ── Google Drive ────────────────────────────────────────────────────────────
+
+  Future<GoogleConnection> googleConnection() async => GoogleConnection.fromJson(
+      ((await _c.get('/api/v1/imports/google/connection')) as Map?)?.cast<String, dynamic>() ?? const {});
+
+  /// What the user gave Posta Drive access to in Google Drive. [folder] null =
+  /// the top level; a Google folder id = its children.
+  Future<GooglePage> googleBrowse({String? folder, String? pageToken}) async {
+    final data = await _c.get('/api/v1/imports/google/browse', query: {
+      'folder': folder,
+      'page_token': pageToken,
+    }) as Map?;
+    final items = ((data?['items'] as List?) ?? const [])
+        .map((e) => GoogleItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return GooglePage(items, (data?['next_page_token'] as String?) ?? '');
+  }
+
+  /// Copy Google items into Posta Drive ([targetFolderId] null = My Drive).
+  /// Runs in the background; returns the import job id.
+  Future<String> googleImport(List<String> ids, {String? targetFolderId, bool importSharing = true}) async {
+    final data = await _c.post('/api/v1/imports/google/start', body: {
+      'mode': 'selected',
+      'items': ids,
+      'target_folder_id': targetFolderId,
+      'import_sharing': importSharing,
+    }) as Map?;
+    return (data?['job_id'] as String?) ?? '';
+  }
 }

@@ -10,16 +10,21 @@ import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_cache.dart';
+import '../../services/drive/drive_client.dart';
 import '../../services/drive/drive_sync_service.dart';
 import '../../widgets/drive_sidebar.dart';
+import '../../widgets/notification_bell.dart';
 import '../../widgets/top_bar.dart';
 import '../auth/drive_login_screen.dart';
 import 'drive_activity_screen.dart';
 import 'drive_dashboard.dart';
 import 'drive_files_screen.dart';
+import 'drive_google_screen.dart';
+import 'drive_open_file.dart';
 import 'drive_search_screen.dart';
 import 'drive_settings_screen.dart';
 import 'drive_sync_monitor.dart';
+import 'drive_tags_screen.dart';
 
 class DriveHomeShell extends StatefulWidget {
   const DriveHomeShell({super.key});
@@ -33,6 +38,43 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
   Future<void> Function()? _filesRefresh;
   VoidCallback? _filesNewMenu; // opens the Files "New" menu
   bool _pendingNew = false; // "New" was pressed while not on Files yet
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  // "Google Drive" shows only when the server has Google import set up; checked
+  // once per account.
+  bool _googleConfigured = false;
+  String? _googleCheckedFor;
+
+  Future<void> _checkGoogle(DriveAccountManager mgr) async {
+    final id = mgr.activeAccount?.id;
+    final api = mgr.activeApi;
+    if (id == null || api == null || id == _googleCheckedFor) return;
+    _googleCheckedFor = id;
+    var configured = false;
+    try {
+      configured = (await api.googleConnection()).configured;
+    } catch (_) {/* older server / offline → hide the section */}
+    if (mounted && _googleCheckedFor == id) setState(() => _googleConfigured = configured);
+  }
+
+  /// A notification about a file: open it (folders open in My Drive).
+  Future<void> _openFromNotification(String fileId) async {
+    final api = context.read<DriveAccountManager>().activeApi;
+    if (api == null) return;
+    try {
+      final f = await api.fileDetail(fileId);
+      if (!mounted) return;
+      if (f.isDirectory) {
+        setState(() => _route = 'files');
+      } else {
+        await openDriveFile(context, f);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)), backgroundColor: AppColors.filePdf));
+      }
+    }
+  }
 
   // Live search: the top-bar field is the single persistent input; typing swaps
   // the content area to live results (debounced) instead of pushing a screen.
@@ -88,6 +130,14 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
         return DriveFilesScreen(key: const ValueKey('shared'), mode: DriveViewMode.shared, onRefreshReady: (fn) => _filesRefresh = fn);
       case 'trash':
         return DriveFilesScreen(key: const ValueKey('trash'), mode: DriveViewMode.trash, onRefreshReady: (fn) => _filesRefresh = fn);
+      case 'pinned':
+        return DriveFilesScreen(key: const ValueKey('pinned'), mode: DriveViewMode.pinned, onRefreshReady: (fn) => _filesRefresh = fn);
+      case 'shortcuts':
+        return DriveFilesScreen(key: const ValueKey('shortcuts'), mode: DriveViewMode.shortcuts, onRefreshReady: (fn) => _filesRefresh = fn);
+      case 'tags':
+        return const DriveTagsScreen(key: ValueKey('tags'));
+      case 'google':
+        return const DriveGoogleScreen(key: ValueKey('google'));
       case 'activity':
         return const DriveActivityScreen();
       case 'settings':
@@ -147,8 +197,11 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
     final mgr = context.watch<DriveAccountManager>();
     final cache = context.watch<DriveCache>();
     final isWide = MediaQuery.of(context).size.width > 768;
+    _checkGoogle(mgr);
+    final api = mgr.activeApi;
 
     final sidebar = DriveSidebar(
+      showGoogleDrive: _googleConfigured,
       currentRoute: _route,
       usedBytes: cache.usedBytes,
       totalBytes: cache.totalBytes,
@@ -161,6 +214,7 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
     );
 
     return Scaffold(
+      key: _scaffoldKey,
       drawer: isWide ? null : Drawer(child: sidebar),
       body: Row(children: [
         if (isWide) sidebar,
@@ -173,6 +227,14 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
               onProfileTap: () => _profileMenu(context, mgr),
               onRefreshTap: () => _filesRefresh?.call() ?? cache.refresh(),
               onSearch: _onSearchChanged,
+              onMenuTap: isWide ? null : () => _scaffoldKey.currentState?.openDrawer(),
+              notifications: api == null
+                  ? null
+                  : DriveNotificationBell(
+                      key: ValueKey('bell-${mgr.activeAccount?.id}'),
+                      api: api,
+                      onOpenFile: _openFromNotification,
+                    ),
             ),
             if (cache.quotaWarningLevel == 'critical')
               Container(
