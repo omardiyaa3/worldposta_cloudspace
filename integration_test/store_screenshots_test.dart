@@ -68,7 +68,7 @@ void main() {
       await windowManager.center();
     }
     final login = find.text('Advanced: use an access token');
-    final home = _text('Meeting Notes - 14 Oct.docx');
+    final home = _text('Overview'); // visible on every screen size (the Recent list can be below the fold)
     await _wait(t, find.byWidgetPredicate((_) => login.evaluate().isNotEmpty || home.evaluate().isNotEmpty));
     if (login.evaluate().isNotEmpty) {
       await t.tap(login);
@@ -76,7 +76,7 @@ void main() {
       await t.enterText(find.byType(TextField).last, _token);
       await t.tap(find.text('Sign in with token'));
     }
-    await _wait(t, _text('Meeting Notes - 14 Oct.docx'), seconds: 45);
+    await _wait(t, home, seconds: 45);
     await _shot(t, '1_home');
 
     final wide = t.binding.renderViews.first.size.width >= kWideLayoutWidth; // the app's own switch
