@@ -20,6 +20,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'http_client.dart';
 
 /// A typed API error carrying the Drive's error `code` (e.g. `not_found`,
 /// `permission_denied`, `unauthenticated`, `quota_exceeded`, `validation_error`,
@@ -84,7 +85,7 @@ class DriveClient {
 
   /// One pooled client for connection reuse. Safe to share across accounts:
   /// auth is per-request, never stored on the client.
-  static final http.Client _shared = http.Client();
+  static final http.Client _shared = newDriveHttpClient();
 
   Map<String, String> get _authHeaders => {'Authorization': 'Bearer $token'};
 

@@ -9,29 +9,38 @@
 // deployment to an SSO login that doesn't exist.
 
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:http/http.dart' as http;
+
+import 'http_client.dart';
 
 enum DriveAuthMode { sso, ad, unavailable }
 
 class DriveAuthModeProbe {
-  static Future<DriveAuthMode> fetch(String serverBase) async {
+  /// Asks the server how it signs users in. Retries a few times (App Review
+  /// and mobile networks can be slow to connect) before saying unavailable.
+  static Future<DriveAuthMode> fetch(String serverBase, {http.Client? client, int attempts = 3}) async {
     final base = serverBase.endsWith('/')
         ? serverBase.substring(0, serverBase.length - 1)
         : serverBase;
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    final c = client ?? newDriveHttpClient();
     try {
-      final req = await client.getUrl(Uri.parse('$base/api/v1/auth/config'));
-      final res = await req.close().timeout(const Duration(seconds: 8));
-      if (res.statusCode == HttpStatus.notFound) return DriveAuthMode.sso;
-      if (res.statusCode != HttpStatus.ok) return DriveAuthMode.unavailable;
-      final body = await res.transform(utf8.decoder).join();
-      final j = jsonDecode(body);
-      final mode = (j is Map && j['data'] is Map) ? j['data']['mode'] : null;
-      return mode == 'ad' ? DriveAuthMode.ad : DriveAuthMode.sso;
-    } catch (_) {
+      for (var i = 0; i < attempts; i++) {
+        if (i > 0) await Future<void>.delayed(Duration(seconds: 2 * i));
+        try {
+          final res = await c.get(Uri.parse('$base/api/v1/auth/config')).timeout(const Duration(seconds: 12));
+          if (res.statusCode == 404) return DriveAuthMode.sso;
+          if (res.statusCode != 200) continue;
+          final j = jsonDecode(utf8.decode(res.bodyBytes));
+          final mode = (j is Map && j['data'] is Map) ? j['data']['mode'] : null;
+          return mode == 'ad' ? DriveAuthMode.ad : DriveAuthMode.sso;
+        } catch (_) {
+          // network error / timeout / bad body: try again
+        }
+      }
       return DriveAuthMode.unavailable;
     } finally {
-      client.close(force: true);
+      if (client == null) c.close();
     }
   }
 }

@@ -1,7 +1,7 @@
 name: cloudspace_app
 description: "CloudSpace - Your cloud, your way."
 publish_to: 'none'
-version: 1.0.5+14
+version: 1.0.5+15
 
 environment:
   sdk: ^3.9.2
@@ -33,6 +33,7 @@ dependencies:
   window_manager: ^0.4.3
   printing: ^5.14.3
   pdf: ^3.12.0
+  cupertino_http: ^2.4.0
 
 dev_dependencies:
   flutter_test:

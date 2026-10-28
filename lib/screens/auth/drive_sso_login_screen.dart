@@ -12,6 +12,7 @@
 // is captured, validated, and stored — exactly like a pasted token, so the rest of
 // the app is unchanged.
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart' as inapp;
 import 'package:provider/provider.dart';
@@ -23,6 +24,10 @@ import '../../services/drive/drive_auth_mode.dart';
 import '../../services/drive/drive_client.dart';
 
 class DriveSsoLoginScreen extends StatefulWidget {
+  /// The sign-in page's web view, for integration tests that fill the form.
+  @visibleForTesting
+  static inapp.InAppWebViewController? debugController;
+
   final String serverUrl; // Drive base, e.g. https://portal.worldposta.com:2023
   final VoidCallback? onSignedIn;
   const DriveSsoLoginScreen({super.key, required this.serverUrl, this.onSignedIn});
@@ -59,18 +64,46 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
   @override
   void initState() {
     super.initState();
+    _start();
+  }
+
+  @override
+  void dispose() {
+    _overlayTimer?.cancel();
+    super.dispose();
+  }
+
+  Timer? _overlayTimer;
+
+  void _start() {
     DriveAuthModeProbe.fetch(_base).then((mode) {
       if (!mounted) return;
-      if (mode == DriveAuthMode.unavailable) {
-        setState(() {
-          _loading = false;
-          _error = "Can't reach the Drive server. Check the address and your connection, then try again.";
-        });
-        return;
-      }
-      setState(() => _startUrl = mode == DriveAuthMode.ad ? '$_base/login?return_to=%2F' : _ssoLoginUrl);
+      // Mode unknown (the check couldn't connect): still open the Drive's own
+      // sign-in page — the web view uses the system's networking and may well
+      // get through; on an SSO server that page forwards to the SSO itself.
+      setState(() => _startUrl = mode == DriveAuthMode.sso ? _ssoLoginUrl : '$_base/login?return_to=%2F');
     });
+    // Never leave "Loading sign-in…" on top of a page that has loaded but
+    // didn't report it (seen on newer macOS / iPadOS).
+    _overlayTimer?.cancel();
+    _overlayTimer = Timer(const Duration(seconds: 12), _pageShown);
   }
+
+  void _pageShown() {
+    if (_loading && mounted) setState(() => _loading = false);
+  }
+
+  void _retry() {
+    setState(() {
+      _error = null;
+      _loading = true;
+      _startUrl = null;
+      _webKey = UniqueKey();
+    });
+    _start();
+  }
+
+  Key _webKey = UniqueKey();
 
   // Runs on the Drive origin: try to mint a token; if it works, hand it back.
   static const _mintJs = '''
@@ -135,12 +168,14 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
               const Icon(Icons.error_outline, color: AppColors.filePdf, size: 18),
               const SizedBox(width: 8),
               Expanded(child: Text(_error!, style: const TextStyle(color: AppColors.filePdf, fontSize: 13))),
+              TextButton(onPressed: _retry, child: const Text('Try again')),
             ]),
           ),
         Expanded(
           child: Stack(children: [
             if (_startUrl != null)
             inapp.InAppWebView(
+              key: _webKey,
               initialUrlRequest: inapp.URLRequest(url: inapp.WebUri(_startUrl!)),
               initialSettings: inapp.InAppWebViewSettings(
                 javaScriptEnabled: true,
@@ -151,6 +186,7 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
                 clearCache: true,
               ),
               onWebViewCreated: (controller) {
+                DriveSsoLoginScreen.debugController = controller;
                 controller.addJavaScriptHandler(
                   handlerName: 'onToken',
                   callback: (args) {
@@ -162,8 +198,19 @@ class _DriveSsoLoginScreenState extends State<DriveSsoLoginScreen> {
               // Accept the Drive's self-signed cert (*.worldposta.com).
               onReceivedServerTrustAuthRequest: (controller, challenge) async =>
                   inapp.ServerTrustAuthResponse(action: inapp.ServerTrustAuthResponseAction.PROCEED),
+              onProgressChanged: (controller, progress) {
+                if (progress >= 100) _pageShown();
+              },
+              onReceivedError: (controller, request, error) {
+                // Only the page itself, not a stray image or script.
+                if (request.isForMainFrame != true || !mounted) return;
+                setState(() {
+                  _loading = false;
+                  _error = "Couldn't open the sign-in page (${error.description}). Check your connection and try again.";
+                });
+              },
               onLoadStop: (controller, url) async {
-                if (_loading && mounted) setState(() => _loading = false);
+                _pageShown();
                 if (url == null || _finishing) return;
                 // Only attempt minting once we're back on the Drive's own origin
                 // (i.e. the SSO round-trip completed and the session cookie is set).
