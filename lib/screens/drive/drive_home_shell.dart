@@ -25,6 +25,7 @@ import 'drive_search_screen.dart';
 import 'drive_settings_screen.dart';
 import 'drive_sync_monitor.dart';
 import 'drive_tags_screen.dart';
+import '../../config/layout.dart';
 
 class DriveHomeShell extends StatefulWidget {
   const DriveHomeShell({super.key});
@@ -196,7 +197,7 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
   Widget build(BuildContext context) {
     final mgr = context.watch<DriveAccountManager>();
     final cache = context.watch<DriveCache>();
-    final isWide = MediaQuery.of(context).size.width > 768;
+    final isWide = isWideLayout(context);
     _checkGoogle(mgr);
     final api = mgr.activeApi;
 

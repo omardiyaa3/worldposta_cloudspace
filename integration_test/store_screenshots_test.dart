@@ -16,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'package:cloudspace_app/config/layout.dart';
 import 'package:cloudspace_app/main.dart' as app;
 
 const _token = String.fromEnvironment('SHOT_TOKEN');
@@ -78,7 +79,7 @@ void main() {
     await _wait(t, _text('Meeting Notes - 14 Oct.docx'), seconds: 45);
     await _shot(t, '1_home');
 
-    final wide = t.binding.renderViews.first.size.width > 768; // logical pixels, like the app's own check
+    final wide = t.binding.renderViews.first.size.width >= kWideLayoutWidth; // the app's own switch
     await t.tap(_text(wide ? 'My Drive' : 'Files').last);
     await _wait(t, _text('Projects'));
     await _shot(t, '2_my_drive');
