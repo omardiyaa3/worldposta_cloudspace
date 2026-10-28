@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../../config/theme.dart';
 import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_cache.dart';
+import '../../services/drive/drive_api.dart';
 import '../../services/drive/drive_client.dart';
 import '../../services/drive/drive_sync_service.dart';
 import '../../widgets/drive_sidebar.dart';
@@ -26,6 +27,7 @@ import 'drive_settings_screen.dart';
 import 'drive_sync_monitor.dart';
 import 'drive_tags_screen.dart';
 import '../../config/layout.dart';
+import '../../services/reserved_region.dart';
 
 class DriveHomeShell extends StatefulWidget {
   const DriveHomeShell({super.key});
@@ -214,14 +216,33 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
       },
     );
 
-    return Scaffold(
-      key: _scaffoldKey,
-      drawer: isWide ? null : Drawer(child: sidebar),
-      body: Row(children: [
-        if (isWide) sidebar,
-        Expanded(
-          child: Column(children: [
-            TopBar(
+    return ValueListenableBuilder<ReservedTopRegion?>(
+      valueListenable: ReservedRegions.instance,
+      builder: (context, region, _) => _scaffold(context, mgr, cache, api, isWide, sidebar, region),
+    );
+  }
+
+  /// Page names for the large title shown beside the iPhone Duo's bubble.
+  static const _titles = {
+    'dashboard': 'Home', 'files': 'My Drive', 'shared': 'Shared', 'recent': 'Recent', 'starred': 'Starred',
+    'trash': 'Trash', 'pinned': 'Pinned', 'shortcuts': 'Shortcuts', 'tags': 'Tags', 'google': 'Google Drive',
+    'activity': 'Activity', 'settings': 'Settings',
+  };
+
+  Widget _scaffold(BuildContext context, DriveAccountManager mgr, DriveCache cache, DriveApi? api, bool isWide,
+      Widget sidebar, ReservedTopRegion? region) {
+    final mq = MediaQuery.of(context);
+    // iPhone Duo: the host moved the safe area's top below the status bubble.
+    // The band beside the bubble holds the top bar and a large page title;
+    // the sidebar / drawer (left of the bubble) use the full height.
+    final band = region != null && region.rect.bottom > region.systemTop ? region : null;
+    final belowBubble = band == null ? mq : mq.copyWith(
+      padding: mq.padding.copyWith(top: band.systemTop),
+      viewPadding: mq.viewPadding.copyWith(top: band.systemTop),
+    );
+    final trailing = band == null ? 0.0 : (mq.size.width - band.rect.left).clamp(0.0, mq.size.width / 2);
+    final titleHeight = band == null ? 0.0 : band.rect.bottom - band.systemTop - 56;
+    final topBar = TopBar(
               displayName: mgr.activeAccount?.displayName,
               searchController: _searchController,
               onSettingsTap: () => setState(() => _route = 'settings'),
@@ -236,7 +257,52 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
                       api: api,
                       onOpenFile: _openFromNotification,
                     ),
-            ),
+              trailingInset: trailing,
+              showBorder: band == null,
+            );
+    return Scaffold(
+      key: _scaffoldKey,
+      drawer: isWide ? null : MediaQuery(data: belowBubble, child: Drawer(child: sidebar)),
+      body: Row(children: [
+        if (isWide) MediaQuery(data: belowBubble, child: sidebar),
+        Expanded(
+          child: Column(children: [
+            if (band == null)
+              topBar
+            else
+              Container(
+                decoration: const BoxDecoration(
+                  color: AppColors.white,
+                  border: Border(bottom: BorderSide(color: AppColors.grey91, width: 1)),
+                ),
+                child: MediaQuery(
+                  data: belowBubble,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    topBar,
+                    if (titleHeight > 0)
+                      SizedBox(
+                        height: titleHeight,
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(isWide ? 24 : 16, 0, trailing + 12, 12),
+                          child: Align(
+                            alignment: Alignment.bottomLeft,
+                            child: Text(
+                              _searchQuery.isNotEmpty ? 'Search' : (_titles[_route] ?? 'Posta Drive'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: 'PublicSans',
+                                fontSize: titleHeight >= 80 ? 32 : 24,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.heading,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ]),
+                ),
+              ),
             if (cache.quotaWarningLevel == 'critical')
               Container(
                 width: double.infinity,
@@ -249,7 +315,7 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
                 ]),
               ),
             _syncBanner(context),
-            Expanded(child: _content()),
+            Expanded(child: MediaQuery.removePadding(context: context, removeTop: true, child: _content())),
           ]),
         ),
       ]),

@@ -14,6 +14,7 @@ import 'services/drive/drive_cache.dart';
 import 'services/drive/drive_sync_service.dart';
 import 'screens/auth/drive_login_screen.dart';
 import 'screens/drive/drive_home_shell.dart';
+import 'services/reserved_region.dart';
 
 final bool _isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 bool _startMinimized = false;
@@ -37,6 +38,7 @@ void main(List<String> args) async {
     });
   }
 
+  ReservedRegions.instance.start(); // iPhone Duo status bubble (iOS host)
   runApp(const CloudSpaceApp());
 }
 

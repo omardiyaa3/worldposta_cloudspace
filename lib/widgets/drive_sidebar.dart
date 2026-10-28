@@ -60,13 +60,25 @@ class DriveSidebar extends StatelessWidget {
     final pct = totalBytes > 0 ? (usedBytes / totalBytes).clamp(0.0, 1.0) : 0.0;
     final topPad = MediaQuery.of(context).padding.top;
 
+    // One scrolling column: when the screen is short (a landscape iPhone Duo,
+    // a small iPad window) everything scrolls together; when there's room,
+    // the storage box stays at the bottom. (Before, only the item list
+    // scrolled and the pinned storage box covered the last items.)
     return Container(
       width: 220,
       color: AppColors.white,
-      child: Column(
+      child: LayoutBuilder(builder: (context, constraints) {
+        // Short screens (landscape iPhone Duo, small iPad windows): tighter
+        // spacing so the whole sidebar, storage included, fits without scrolling.
+        final dense = constraints.maxHeight < 760;
+        return SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: IntrinsicHeight(
+            child: Column(
         children: [
           Padding(
-            padding: EdgeInsets.only(top: topPad + 16, left: 20, right: 20, bottom: 8),
+            padding: EdgeInsets.only(top: topPad + (dense ? 10 : 16), left: 20, right: 20, bottom: dense ? 4 : 8),
             child: Row(children: [
               Image.asset('assets/logo.png', width: 40, height: 40),
               const SizedBox(width: 10),
@@ -113,29 +125,34 @@ class DriveSidebar extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.green700,
                   foregroundColor: AppColors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  padding: EdgeInsets.symmetric(vertical: dense ? 8 : 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+          SizedBox(height: dense ? 8 : 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Column(
               children: _items
                   .where((item) => item.route != 'google' || showGoogleDrive)
                   .map((item) => _NavItem(
                         icon: item.icon,
                         label: item.label,
                         isActive: currentRoute == item.route,
+                        dense: dense,
                         onTap: () => onNavigate(item.route),
                       ))
                   .toList(),
             ),
           ),
+          const Spacer(),
           Padding(
-            padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 16 + MediaQuery.of(context).padding.bottom),
+            // Extra room at the bottom: on screens with big rounded corners
+            // (iPhone Duo) the last line would otherwise be clipped.
+            padding: EdgeInsets.only(left: 16, right: 16, top: dense ? 10 : 16,
+                bottom: 20 + MediaQuery.of(context).padding.bottom),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -169,7 +186,11 @@ class DriveSidebar extends StatelessWidget {
             ),
           ),
         ],
-      ),
+            ),
+          ),
+        ),
+      );
+      }),
     );
   }
 }
@@ -178,8 +199,9 @@ class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isActive;
+  final bool dense;
   final VoidCallback onTap;
-  const _NavItem({required this.icon, required this.label, required this.isActive, required this.onTap});
+  const _NavItem({required this.icon, required this.label, required this.isActive, required this.onTap, this.dense = false});
 
   @override
   Widget build(BuildContext context) {
@@ -190,7 +212,7 @@ class _NavItem extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: dense ? 7 : 10),
           child: Row(children: [
             Icon(icon, size: 20, color: isActive ? AppColors.green800 : AppColors.body),
             const SizedBox(width: 12),

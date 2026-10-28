@@ -16,6 +16,10 @@ class TopBar extends StatefulWidget {
   /// Optional shell-owned controller so the parent can read/clear the query
   /// (e.g. clear search when navigating away). Falls back to an internal one.
   final TextEditingController? searchController;
+  /// Room to leave free on the trailing side (the iPhone Duo's status bubble).
+  final double trailingInset;
+  /// Draw the bottom divider (off when the shell draws one below a title band).
+  final bool showBorder;
 
   const TopBar({
     super.key,
@@ -29,6 +33,8 @@ class TopBar extends StatefulWidget {
     this.searchController,
     this.notifications,
     this.onMenuTap,
+    this.trailingInset = 0,
+    this.showBorder = true,
   });
 
   @override
@@ -62,11 +68,11 @@ class _TopBarState extends State<TopBar> {
       padding: EdgeInsets.only(
         top: topPadding,
         left: isMobile ? 12 : 24,
-        right: isMobile ? 12 : 24,
+        right: (isMobile ? 12 : 24) + widget.trailingInset,
       ),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.white,
-        border: Border(bottom: BorderSide(color: AppColors.grey91, width: 1)),
+        border: widget.showBorder ? const Border(bottom: BorderSide(color: AppColors.grey91, width: 1)) : null,
       ),
       child: SizedBox(
         height: 56,
