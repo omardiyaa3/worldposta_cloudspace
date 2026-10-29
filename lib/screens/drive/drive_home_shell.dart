@@ -283,9 +283,11 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
                       SizedBox(
                         height: titleHeight,
                         child: Padding(
-                          padding: EdgeInsets.fromLTRB(isWide ? 24 : 16, 0, trailing + 12, 12),
+                          padding: EdgeInsets.fromLTRB(isWide ? 24 : 16, 0, trailing + 12, 4),
                           child: Align(
-                            alignment: Alignment.bottomLeft,
+                            // Centred in the band's remaining height: reads as one
+                            // header with the bar above it, no empty strip.
+                            alignment: Alignment.centerLeft,
                             child: Text(
                               _searchQuery.isNotEmpty ? 'Search' : (_titles[_route] ?? 'Posta Drive'),
                               maxLines: 1,
@@ -321,7 +323,16 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
       ]),
       bottomNavigationBar: isWide
           ? null
-          : BottomNavigationBar(
+          : Container(
+              // White with a hairline on top, like the top bar (the default
+              // Material tint made it pinkish).
+              decoration: const BoxDecoration(
+                color: AppColors.white,
+                border: Border(top: BorderSide(color: AppColors.grey91, width: 1)),
+              ),
+              child: BottomNavigationBar(
+              backgroundColor: AppColors.white,
+              elevation: 0,
               currentIndex: const ['dashboard', 'files', 'shared', 'starred', 'trash'].indexOf(_route).clamp(0, 4),
               onTap: (i) { _clearSearch(); setState(() => _route = ['dashboard', 'files', 'shared', 'starred', 'trash'][i]); },
               type: BottomNavigationBarType.fixed,
@@ -336,6 +347,7 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
                 BottomNavigationBarItem(icon: Icon(Icons.star_outline), label: 'Starred'),
                 BottomNavigationBarItem(icon: Icon(Icons.delete_outline), label: 'Trash'),
               ],
+            ),
             ),
     );
   }
