@@ -1,6 +1,6 @@
 // drive_sso_login_screen.dart — embedded WorldPosta SSO login.
 //
-// Opens the SSO login page DIRECTLY (ssotest.worldposta.com/auth/login?return_to=
+// Opens the SSO login page DIRECTLY (admin.worldposta.com/login?return_to=
 // <drive>) — the same redirect the Drive SPA does — so the login appears fast
 // without loading the Drive SPA first. The webview is INCOGNITO (private session),
 // so no cookies carry over between logins: each sign-in starts fresh, which is

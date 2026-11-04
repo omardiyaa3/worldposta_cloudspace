@@ -12,5 +12,5 @@ class DriveConstants {
   /// WorldPosta SSO login base. Opening it directly (with a return_to back to the
   /// Drive) skips loading the Drive SPA first, so the login page appears fast.
   /// Deployment-specific — this is the SSO the portal Drive trusts.
-  static const String ssoAuthUrl = 'https://ssotest.worldposta.com/auth';
+  static const String ssoAuthUrl = 'https://admin.worldposta.com';
 }
