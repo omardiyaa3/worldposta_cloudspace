@@ -37,36 +37,39 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
   // browser. The WOPI URL is self-contained (token embedded), so it just works.
   bool get _useBrowser => Platform.isWindows;
 
-  // The office backend is Microsoft Office Online Server (WOPI). Its mobile chrome
-  // shows a back/close button (`closebutton`, inside a nested same-origin iframe)
-  // that's redundant with — and disconnected from — the app's AppBar back button.
-  // Rather than hide it (Office re-renders it), we intercept its tap in the capture
-  // phase (before Office's own handler), across the page and its frames, and pop
-  // the Flutter editor route via the `officeBack` handler. Listeners are attached
-  // at the document level so they survive Office re-rendering the button.
-  // The office backend is Microsoft Office Online Server (WOPI). Its mobile back
-  // button (`div#toolbar-mobile-back`, inside a nested same-origin iframe) is
-  // redundant with the app's AppBar back and, when tapped in view mode, doesn't
-  // return to the app. So we intercept its tap and pop the editor route.
-  //
-  // CRUCIAL: in EDIT mode the SAME button becomes Save (it then carries the class
-  // `editmode-on`). We must NOT intercept it there, or edits are lost. So we pop
-  // ONLY when `editmode-on` is absent (view mode = pure back); in edit mode we let
-  // Office handle the tap so it saves. Listeners are attached at the document
-  // level (and in nested frames) so they survive Office re-rendering the toolbar.
+  // The office backend is Collabora (WOPI). Its mobile back button
+  // (`div#toolbar-mobile-back`, possibly inside a nested same-origin iframe)
+  // closes the document by posting `UI_Close` to its host page — the web app's
+  // iframe parent. In the app Collabora IS the top page, so that message goes
+  // nowhere and the button does nothing. So we catch it two ways and pop the
+  // editor route via the `officeBack` handler:
+  //  - a view-mode tap on the back button (capture phase, before Collabora);
+  //  - the `UI_Close` message itself, whichever button sent it.
+  // In EDIT mode the same button means "done editing" (class `editmode-on`) and
+  // is left to Collabora. Listeners sit at the document level (and in nested
+  // frames) so they survive Collabora re-rendering the toolbar. Edits are not
+  // lost on leaving: Collabora saves when the last view of a document closes.
   static const String _officeBackJs = r'''
 (function(){
   if (window.__csOfficeBack) return; window.__csOfficeBack = true;
   function bridge(){ try{ return (window.top&&window.top.flutter_inappwebview)||window.flutter_inappwebview; }catch(e){ return window.flutter_inappwebview; } }
   function findBack(el){ var n=0; while(el&&n<6){ if(el.id==='toolbar-mobile-back') return el; el=el.parentElement; n++; } return null; }
   var last=0;
+  function back(){
+    var now=Date.now(); if(now-last<700) return; last=now;
+    try{ bridge().callHandler('officeBack'); }catch(_){}
+  }
+  var post=window.postMessage;
+  window.postMessage=function(m){
+    try{ var d=typeof m==='string'?JSON.parse(m):m; if(d&&d.MessageId==='UI_Close'){ back(); return; } }catch(_){}
+    return post.apply(window, arguments);
+  };
   function onTap(e){
     var btn=findBack(e.target);
     if(!btn) return;
-    if(/\beditmode-on\b/.test(btn.getAttribute('class')||'')) return; // edit mode → Save; let it through
+    if(/\beditmode-on\b/.test(btn.getAttribute('class')||'')) return; // edit mode → "done editing"; let it through
     try{ e.preventDefault(); e.stopPropagation(); }catch(_){}
-    var now=Date.now(); if(now-last<700) return; last=now;
-    try{ bridge().callHandler('officeBack'); }catch(_){}
+    back();
   }
   function attach(){
     var ds=[document];
@@ -111,21 +114,11 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
     } catch (_) {}
   }
 
-  // On iOS, once the office doc has rendered its own back button we hide the app's
-  // redundant one — leaving a single back button. Kept while loading / on error
-  // (the doc's button isn't there yet) and on Windows (browser mode) / macOS
-  // (desktop Office has no mobile back button), where the app's back is the exit.
-  bool get _showAppBack {
-    if (!Platform.isIOS || _useBrowser) return true;
-    return _loadingUrl || _error != null || _pageLoading;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.grey98,
       appBar: AppBar(
-        automaticallyImplyLeading: _showAppBack,
         title: Text(widget.file.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
         backgroundColor: AppColors.white,
         foregroundColor: AppColors.heading,
