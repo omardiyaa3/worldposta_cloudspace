@@ -277,6 +277,7 @@ class _DriveFilesScreenState extends State<DriveFilesScreen> {
   }
 
   Future<void> _openFolder(DriveFile folder) async {
+    if (folder.id == _parentId) return; // repeat tap while it opens
     final append = [..._crumbs, DrivePathNode(id: folder.id, name: folder.name, isDirectory: true)];
     setState(() {
       _parentId = folder.id;
@@ -1297,6 +1298,7 @@ class _MovePickerState extends State<_MovePicker> {
   }
 
   void _enter(DriveFile f) {
+    if (_loading) return; // the old list is still shown: a fast second tap would nest f twice
     _stack.add((id: _parentId, name: _label));
     setState(() { _parentId = f.id; _label = f.name; });
     _load();
