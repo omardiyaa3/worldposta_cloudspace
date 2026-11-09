@@ -80,6 +80,18 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
 })();
 ''';
 
+  /// The editor may only show the editor and the Drive. Its Help menu links
+  /// out (Collabora's online help and About, worldposta.com Forum / Report an
+  /// issue), and App Review rejects external paths to sales or sign-up pages
+  /// (3.1.1) — so in the app those links simply do nothing.
+  bool _inEditor(inapp.WebUri? u) {
+    if (u == null) return true;
+    if (!u.isScheme('http') && !u.isScheme('https')) return true; // about:, blob:, data:
+    final editor = _url == null ? null : Uri.tryParse(_url!)?.host;
+    final drive = Uri.tryParse(context.read<DriveAccountManager>().activeAccount?.serverUrl ?? '')?.host;
+    return u.host == editor || u.host == drive;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -145,7 +157,13 @@ class _DriveOfficeEditorState extends State<DriveOfficeEditor> {
                       javaScriptEnabled: true,
                       javaScriptCanOpenWindowsAutomatically: true,
                       transparentBackground: true,
+                      useShouldOverrideUrlLoading: true,
                     ),
+                    shouldOverrideUrlLoading: (controller, action) async => _inEditor(action.request.url)
+                        ? inapp.NavigationActionPolicy.ALLOW
+                        : inapp.NavigationActionPolicy.CANCEL,
+                    // New windows (window.open, target=_blank): never open one.
+                    onCreateWindow: (controller, action) async => false,
                     onWebViewCreated: (controller) {
                       controller.addJavaScriptHandler(
                         handlerName: 'officeBack',

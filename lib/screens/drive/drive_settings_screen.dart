@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../config/drive_constants.dart';
 import '../../config/theme.dart';
 import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_client.dart';
@@ -197,7 +199,14 @@ class DriveSettingsScreen extends StatelessWidget {
             ]),
           ]),
         const SizedBox(height: 16),
-        _card('About', Icons.info_outline, [_field('Version', '2.0.0 (Drive)')]),
+        _card('About', Icons.info_outline, [
+          _field('Version', '2.0.0 (Drive)'),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, children: [
+            _link('Privacy policy', DriveConstants.privacyUrl),
+            _link('Support', DriveConstants.supportUrl),
+          ]),
+        ]),
       ],
     );
   }
@@ -220,6 +229,12 @@ class DriveSettingsScreen extends StatelessWidget {
             ...children,
           ]),
         ),
+      );
+
+  Widget _link(String label, String url) => TextButton.icon(
+        onPressed: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+        icon: const Icon(Icons.open_in_new, size: 16, color: AppColors.green700),
+        label: Text(label, style: const TextStyle(color: AppColors.green700)),
       );
 
   Widget _field(String label, String value) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

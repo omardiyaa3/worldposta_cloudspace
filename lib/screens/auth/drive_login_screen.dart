@@ -327,15 +327,17 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
     }
   }
 
-  Future<void> _openTokenHelp() async {
-    var base = _serverController.text.trim();
-    if (base.isEmpty) base = DriveConstants.defaultServerUrl;
-    if (base.endsWith('/')) base = base.substring(0, base.length - 1);
-    final uri = Uri.parse('$base${DriveConstants.tokenHelpPath}');
+  Future<void> _openPage(String url) async {
     try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     } catch (_) {}
   }
+
+  Widget _pageLink(String label, String url) => TextButton(
+        onPressed: () => _openPage(url),
+        style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 32)),
+        child: Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -530,12 +532,10 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
                           spacing: 12,
                           runSpacing: 8,
                           children: [
-                          TextButton.icon(
-                            onPressed: _openTokenHelp,
-                            icon: const Icon(Icons.open_in_new, size: 15, color: AppColors.green700),
-                            label: const Text('Where do I get a token?', style: TextStyle(color: AppColors.green700, fontSize: 13)),
-                            style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 0)),
-                          ),
+                          // Text, not a link: signed out, the Drive website forwards to
+                          // the SSO page, whose sign-up link App Review rejects (3.1.1).
+                          const Text('Create one on the Posta Drive website:\nSettings → Security & API tokens.',
+                              style: TextStyle(color: AppColors.muted, fontSize: 13)),
                           ElevatedButton(
                             onPressed: _busy ? null : _signIn,
                             child: _busy
@@ -562,6 +562,11 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
                           ]),
                         ),
                       ],
+                      const SizedBox(height: 20),
+                      Wrap(spacing: 16, children: [
+                        _pageLink('Privacy policy', DriveConstants.privacyUrl),
+                        _pageLink('Support', DriveConstants.supportUrl),
+                      ]),
                     ],
                   ),
                 ),

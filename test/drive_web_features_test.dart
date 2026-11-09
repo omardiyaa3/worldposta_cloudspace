@@ -186,13 +186,14 @@ void main() {
       return launched;
     }
 
-    testWidgets('not connected: explains and sends the user to connect on the web', (t) async {
+    testWidgets('not connected: explains where to connect on the web, without a link', (t) async {
       final f = _Fake()..on('GET /api/v1/imports/google/connection', {'configured': true, 'connected': false});
       final launched = await pump(t, f);
       expect(find.text('Connect Google Drive'), findsOneWidget);
       await t.tap(find.text('Connect Google Drive'));
-      await t.pump();
-      expect(launched.single.toString(), 'https://drive.test/me/imports');
+      await t.pumpAndSettle();
+      expect(find.textContaining('drive.test'), findsOneWidget);
+      expect(launched, isEmpty); // no browser: it would land on the SSO page with its sign-up link
       expect(f.calls.where((r) => r.url.path.endsWith('/browse')), isEmpty);
     });
 
@@ -230,8 +231,9 @@ void main() {
       expect(launched.single.toString(), 'https://docs.google.com/g3');
 
       await t.tap(find.text('Add from Google Drive'));
-      await t.pump();
-      expect(launched.last.toString(), 'https://drive.test/drive/google?pick=1');
+      await t.pumpAndSettle();
+      expect(find.textContaining('drive.test'), findsOneWidget);
+      expect(launched, hasLength(1)); // still only the Google file
     });
 
     testWidgets('access expired while browsing → back to "connect"', (t) async {

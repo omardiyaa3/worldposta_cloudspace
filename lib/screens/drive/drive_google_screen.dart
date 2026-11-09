@@ -3,7 +3,10 @@
 // the files and folders picked in Google's picker, which is web-only).
 //
 // Browse folders, open an item in Google, or copy items into Posta Drive
-// (an import job on the server). Connecting and picking more happen on the web.
+// (an import job on the server). Connecting and picking more happen on the web;
+// the app only says where (no link): opened signed-out in a browser, the Drive
+// website forwards to the SSO sign-in page, whose business sign-up link the
+// App Store doesn't allow (guideline 3.1.1).
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -58,7 +61,20 @@ class _DriveGoogleScreenState extends State<DriveGoogleScreen> {
     await launchUrl(u, mode: LaunchMode.externalApplication);
   }
 
-  Future<void> _openWeb(String path) => _launch(Uri.parse('$_server$path'));
+  /// Where to do it on the web — text only, see the note at the top.
+  Future<void> _webOnly(String title, String step) {
+    final host = Uri.tryParse(_server)?.host;
+    final site = (host == null || host.isEmpty) ? 'the Posta Drive website' : host;
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text('This is done on the web: sign in to Posta Drive at $site, open Google Drive and choose “$step”. '
+            'Then come back here and refresh.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+      ),
+    );
+  }
 
   Future<void> _load() async {
     setState(() {
@@ -191,7 +207,7 @@ class _DriveGoogleScreenState extends State<DriveGoogleScreen> {
             ]),
             Row(mainAxisSize: MainAxisSize.min, children: [
               OutlinedButton.icon(
-                onPressed: () => _openWeb('/drive/google?pick=1'),
+                onPressed: () => _webOnly('Add from Google Drive', 'Add from Google Drive'),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add from Google Drive'),
               ),
@@ -338,9 +354,9 @@ class _DriveGoogleScreenState extends State<DriveGoogleScreen> {
   Widget _notConnected() => _message(
         Icons.add_to_drive,
         'Connect your Google account to open your Google Drive files here and copy them into Posta Drive. '
-        'Connecting happens once, in your browser.',
+        'Connecting happens once, on the web.',
         action: ElevatedButton.icon(
-          onPressed: () => _openWeb('/me/imports'),
+          onPressed: () => _webOnly('Connect Google Drive', 'Connect Google Drive'),
           icon: const Icon(Icons.link, size: 18),
           label: const Text('Connect Google Drive'),
           style: ElevatedButton.styleFrom(backgroundColor: AppColors.green700, foregroundColor: AppColors.white),
