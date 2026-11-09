@@ -50,8 +50,8 @@ void main() {
     // Advanced token sign-in: something that isn't a dk_ token surfaces a
     // validation error without ever calling the (throwing) validator.
     // The form is taller than the test window: scroll each control into view.
-    await tester.ensureVisible(find.text('Advanced: use an access token'));
-    await tester.tap(find.text('Advanced: use an access token'));
+    await tester.ensureVisible(find.text('Sign in with an access token instead'));
+    await tester.tap(find.text('Sign in with an access token instead'));
     await tester.pump();
     // The token field comes after the email/password form.
     await tester.enterText(find.byType(TextField).last, 'not-a-token');

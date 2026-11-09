@@ -333,6 +333,44 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
     } catch (_) {}
   }
 
+  /// A secondary option under the form (left-aligned, muted).
+  Widget _option(String label, VoidCallback onPressed) => Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton(
+          onPressed: _busy ? null : onPressed,
+          style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+          child: Text(label, style: const TextStyle(color: AppColors.green700, fontSize: 13)),
+        ),
+      );
+
+  /// Advanced: a `dk_` token made on the website, instead of email + password.
+  Widget _tokenForm() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        TextField(
+          controller: _tokenController,
+          autofocus: true,
+          obscureText: true,
+          enableSuggestions: false,
+          autocorrect: false,
+          onSubmitted: (_) => _busy ? null : _signIn(),
+          decoration: _field('Access token', Icons.key_outlined,
+              suffix: IconButton(
+                icon: const Icon(Icons.content_paste, size: 18, color: AppColors.muted),
+                tooltip: 'Paste',
+                onPressed: _pasteToken,
+              )),
+        ),
+        const SizedBox(height: 8),
+        // Text, not a link: signed out, the Drive website forwards to the SSO
+        // page, whose sign-up link App Review rejects (3.1.1).
+        const Text('Create one on the Posta Drive website, under Settings, then Security & API tokens.',
+            style: TextStyle(color: AppColors.muted, fontSize: 13, height: 1.4)),
+        const SizedBox(height: 16),
+        _primaryButton('Sign in with token', _signIn),
+      ]);
+
   Widget _pageLink(String label, String url) => TextButton(
         onPressed: () => _openPage(url),
         style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 32)),
@@ -443,107 +481,18 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
                           style: TextStyle(
                               fontFamily: 'PublicSans', fontSize: 26, fontWeight: FontWeight.w700, color: AppColors.heading)),
                       const SizedBox(height: 6),
-                      const Text('Sign in with your work account.',
-                          style: TextStyle(fontSize: 14, color: AppColors.body)),
+                      Text(_showToken ? 'Sign in with a Posta Drive access token.' : 'Sign in with your work account.',
+                          style: const TextStyle(fontSize: 14, color: AppColors.body)),
                       const SizedBox(height: 24),
 
-                      // Primary: native sign-in (Windows: the browser)
-                      if (_native) _nativeForm() else SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: _busy ? null : _ssoLogin,
-                          icon: const Icon(Icons.login, size: 20),
-                          label: const Text('Sign in',
-                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.green700,
-                            foregroundColor: AppColors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            elevation: 0,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      // Server override
-                      if (_showServer) ...[
-                        TextField(
-                          controller: _serverController,
-                          keyboardType: TextInputType.url,
-                          decoration: InputDecoration(
-                            labelText: 'Drive server',
-                            prefixIcon: const Icon(Icons.dns_outlined, size: 20, color: AppColors.muted),
-                            filled: true,
-                            fillColor: AppColors.grey96,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ] else
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton(
-                            onPressed: () => setState(() => _showServer = true),
-                            style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 0)),
-                            child: const Text('Use a different server', style: TextStyle(color: AppColors.muted, fontSize: 13)),
-                          ),
-                        ),
-
-                      // Advanced: paste a token
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton(
-                          onPressed: () => setState(() => _showToken = !_showToken),
-                          style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 0)),
-                          child: Text(_showToken ? 'Hide access-token sign-in' : 'Advanced: use an access token',
-                              style: const TextStyle(color: AppColors.muted, fontSize: 13)),
-                        ),
-                      ),
-                      if (_showToken) ...[
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _tokenController,
-                          obscureText: true,
-                          enableSuggestions: false,
-                          autocorrect: false,
-                          onSubmitted: (_) => _busy ? null : _signIn(),
-                          decoration: InputDecoration(
-                            hintText: 'dk_…  (access token)',
-                            prefixIcon: const Icon(Icons.key_outlined, size: 20, color: AppColors.muted),
-                            suffixIcon: IconButton(
-                              icon: const Icon(Icons.content_paste, size: 18, color: AppColors.muted),
-                              tooltip: 'Paste',
-                              onPressed: _pasteToken,
-                            ),
-                            filled: true,
-                            fillColor: AppColors.grey96,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.green700, width: 1.5)),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          alignment: WrapAlignment.spaceBetween,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          spacing: 12,
-                          runSpacing: 8,
-                          children: [
-                          // Text, not a link: signed out, the Drive website forwards to
-                          // the SSO page, whose sign-up link App Review rejects (3.1.1).
-                          const Text('Create one on the Posta Drive website:\nSettings → Security & API tokens.',
-                              style: TextStyle(color: AppColors.muted, fontSize: 13)),
-                          ElevatedButton(
-                            onPressed: _busy ? null : _signIn,
-                            child: _busy
-                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.white))
-                                : const Text('Sign in with token'),
-                          ),
-                        ]),
-                      ],
+                      // One way of signing in at a time: the token form replaces the
+                      // email/password form (Windows: the browser button).
+                      if (_showToken)
+                        _tokenForm()
+                      else if (_native)
+                        _nativeForm()
+                      else
+                        _primaryButton('Sign in', _ssoLogin),
 
                       if (_error != null) ...[
                         const SizedBox(height: 14),
@@ -562,11 +511,41 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
                           ]),
                         ),
                       ],
+
+                      // Other options
                       const SizedBox(height: 20),
-                      Wrap(spacing: 16, children: [
-                        _pageLink('Privacy policy', DriveConstants.privacyUrl),
-                        _pageLink('Support', DriveConstants.supportUrl),
-                      ]),
+                      if (_showServer) ...[
+                        TextField(
+                          controller: _serverController,
+                          keyboardType: TextInputType.url,
+                          decoration: _field('Drive server', Icons.dns_outlined),
+                        ),
+                        const SizedBox(height: 4),
+                      ] else
+                        _option('Use a different server', () => setState(() => _showServer = true)),
+                      if (_codeSentTo == null)
+                        _option(
+                          _showToken ? 'Sign in with email and password instead' : 'Sign in with an access token instead',
+                          () => setState(() {
+                            _showToken = !_showToken;
+                            _error = null;
+                          }),
+                        ),
+
+                      // Footer
+                      const SizedBox(height: 28),
+                      const Divider(height: 1, color: AppColors.grey91),
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          _pageLink('Privacy policy', DriveConstants.privacyUrl),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 10),
+                            child: Text('·', style: TextStyle(color: AppColors.muted, fontSize: 13)),
+                          ),
+                          _pageLink('Support', DriveConstants.supportUrl),
+                        ]),
+                      ),
                     ],
                   ),
                 ),
