@@ -1,9 +1,14 @@
-// drive_login_screen.dart — token-paste sign-in for the WorldPosta Drive.
+// drive_login_screen.dart — sign-in for the WorldPosta Drive.
 //
-// The Drive has no password/OAuth endpoint of its own; the only native
-// credential is a `dk_` API token minted in the web UI (Settings → Security).
-// The user pastes it here; we validate it against GET /me via
-// DriveAccountManager and store it in the OS keystore.
+// iPhone, iPad and Mac: a native email + password form (plus the emailed code
+// when the account needs one) against the SSO's mobile endpoints — see
+// DriveSsoPasswordLogin. The app never shows the SSO's web sign-in page, which
+// also carries a business sign-up link the App Store doesn't allow (3.1.1).
+// A server in Active Directory mode still gets its own web sign-in page.
+// Windows: the system browser + loopback redirect (DriveDesktopSso).
+// Advanced: paste a `dk_` API token minted in the web UI (Settings → Security);
+// we validate it against GET /me via DriveAccountManager and store it in the
+// OS keystore — every sign-in path ends there.
 
 import 'dart:io' show Platform;
 
@@ -15,8 +20,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../config/drive_constants.dart';
 import '../../config/theme.dart';
 import '../../services/drive/drive_account_manager.dart';
+import '../../services/drive/drive_auth_mode.dart';
 import '../../services/drive/drive_client.dart';
 import '../../services/drive/drive_desktop_sso.dart';
+import '../../services/drive/drive_sso_password_login.dart';
 import 'drive_sso_login_screen.dart';
 
 class DriveLoginScreen extends StatefulWidget {
@@ -31,7 +38,16 @@ class DriveLoginScreen extends StatefulWidget {
 class _DriveLoginScreenState extends State<DriveLoginScreen> {
   final _serverController = TextEditingController(text: DriveConstants.defaultServerUrl);
   final _tokenController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _codeController = TextEditingController();
   bool _busy = false;
+  bool _hidePassword = true;
+  /// Set once the SSO has emailed a code: the address it went to.
+  String? _codeSentTo;
+
+  // Windows keeps the browser sign-in; everywhere else signs in natively.
+  bool get _native => !Platform.isWindows;
   bool _showServer = false;
   bool _showToken = false;
   String? _error;
@@ -79,8 +95,94 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
   void dispose() {
     _serverController.dispose();
     _tokenController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _codeController.dispose();
     super.dispose();
   }
+
+  /// Native sign-in, step 1: email + password (also "Send a new code").
+  Future<void> _passwordSignIn() async {
+    final server = _serverController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (server.isEmpty) return setState(() => _error = 'Enter your Drive server URL.');
+    if (email.isEmpty || password.isEmpty) return setState(() => _error = 'Enter your email and password.');
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final sso = DriveSsoPasswordLogin();
+    try {
+      final mode = await DriveAuthModeProbe.fetch(server);
+      if (!mounted) return;
+      if (mode == DriveAuthMode.unavailable) {
+        return setState(() => _error = "Can't reach the Drive server. Check your connection and try again.");
+      }
+      if (mode == DriveAuthMode.ad) {
+        // An Active Directory server signs in on its own page, not the SSO.
+        await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => DriveSsoLoginScreen(serverUrl: server, onSignedIn: widget.onSignedIn),
+        ));
+        return;
+      }
+      await _finish(sso, server, await sso.login(email, password));
+    } on SsoSignInException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on DriveException catch (e) {
+      if (mounted) setState(() => _error = 'Sign-in failed: ${e.message}');
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not complete sign-in. Please try again.');
+    } finally {
+      sso.close();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Native sign-in, step 2: the emailed code.
+  Future<void> _verifyCode() async {
+    final code = _codeController.text.trim();
+    if (code.isEmpty) return setState(() => _error = 'Enter the code from the email.');
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final sso = DriveSsoPasswordLogin();
+    try {
+      await _finish(sso, _serverController.text.trim(),
+          await sso.verifyCode(_codeSentTo ?? _emailController.text, _passwordController.text, code));
+    } on SsoSignInException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on DriveException catch (e) {
+      if (mounted) setState(() => _error = 'Sign-in failed: ${e.message}');
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not complete sign-in. Please try again.');
+    } finally {
+      sso.close();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Signed in at the SSO → Drive token → stored account. Or show the code step.
+  Future<void> _finish(DriveSsoPasswordLogin sso, String server, SsoSignInStep step) async {
+    switch (step) {
+      case SsoCodeRequired(:final email):
+        _codeController.clear();
+        if (mounted) setState(() => _codeSentTo = email);
+      case SsoSignedIn(:final accessToken):
+        final token = await sso.mintDriveToken(server, accessToken);
+        if (!mounted) return;
+        await context.read<DriveAccountManager>().addAccountFromToken(serverUrl: server, token: token);
+        _passwordController.clear();
+        if (mounted) widget.onSignedIn?.call();
+    }
+  }
+
+  void _backToPassword() => setState(() {
+        _codeSentTo = null;
+        _codeController.clear();
+        _error = null;
+      });
 
   Future<void> _signIn() async {
     final server = _serverController.text.trim();
@@ -116,6 +218,105 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  InputDecoration _field(String label, IconData icon, {Widget? suffix}) => InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, size: 20, color: AppColors.muted),
+        suffixIcon: suffix,
+        filled: true,
+        fillColor: AppColors.grey96,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.green700, width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      );
+
+  Widget _primaryButton(String label, VoidCallback onPressed) => SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: ElevatedButton(
+          onPressed: _busy ? null : onPressed,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.green700,
+            foregroundColor: AppColors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            elevation: 0,
+          ),
+          child: _busy
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.white))
+              : Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        ),
+      );
+
+  /// Email + password, then (if the SSO asks) the emailed code.
+  Widget _nativeForm() {
+    if (_codeSentTo != null) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('We emailed a verification code to $_codeSentTo. Enter it to finish signing in.',
+            style: const TextStyle(fontSize: 14, color: AppColors.body, height: 1.4)),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _codeController,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          autofillHints: const [AutofillHints.oneTimeCode],
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _busy ? null : _verifyCode(),
+          decoration: _field('Verification code', Icons.pin_outlined),
+        ),
+        const SizedBox(height: 14),
+        _primaryButton('Verify', _verifyCode),
+        const SizedBox(height: 6),
+        Wrap(spacing: 16, children: [
+          TextButton(
+            onPressed: _busy ? null : _passwordSignIn,
+            style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 36)),
+            child: const Text('Send a new code', style: TextStyle(color: AppColors.green700, fontSize: 13)),
+          ),
+          TextButton(
+            onPressed: _busy ? null : _backToPassword,
+            style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 36)),
+            child: const Text('Use a different account', style: TextStyle(color: AppColors.muted, fontSize: 13)),
+          ),
+        ]),
+      ]);
+    }
+    return AutofillGroup(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        TextField(
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+          autocorrect: false,
+          enableSuggestions: false,
+          autofillHints: const [AutofillHints.username, AutofillHints.email],
+          textInputAction: TextInputAction.next,
+          decoration: _field('Work email', Icons.mail_outline),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _passwordController,
+          obscureText: _hidePassword,
+          autocorrect: false,
+          enableSuggestions: false,
+          autofillHints: const [AutofillHints.password],
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _busy ? null : _passwordSignIn(),
+          decoration: _field('Password', Icons.lock_outline,
+              suffix: IconButton(
+                icon: Icon(_hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                    size: 20, color: AppColors.muted),
+                tooltip: _hidePassword ? 'Show password' : 'Hide password',
+                onPressed: () => setState(() => _hidePassword = !_hidePassword),
+              )),
+        ),
+        const SizedBox(height: 16),
+        _primaryButton('Sign in', _passwordSignIn),
+        const SizedBox(height: 10),
+        const Text('Forgot your password? Ask your organization\'s administrator to reset it.',
+            style: TextStyle(fontSize: 13, color: AppColors.muted)),
+      ]),
+    );
   }
 
   Future<void> _pasteToken() async {
@@ -244,8 +445,8 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
                           style: TextStyle(fontSize: 14, color: AppColors.body)),
                       const SizedBox(height: 24),
 
-                      // Primary: SSO login
-                      SizedBox(
+                      // Primary: native sign-in (Windows: the browser)
+                      if (_native) _nativeForm() else SizedBox(
                         width: double.infinity,
                         height: 48,
                         child: ElevatedButton.icon(

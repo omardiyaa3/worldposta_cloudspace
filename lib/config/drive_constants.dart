@@ -13,4 +13,9 @@ class DriveConstants {
   /// Drive) skips loading the Drive SPA first, so the login page appears fast.
   /// Deployment-specific — this is the SSO the portal Drive trusts.
   static const String ssoAuthUrl = 'https://admin.worldposta.com';
+
+  /// The SSO's API server — the app's native sign-in calls its mobile endpoints
+  /// (/api/auth/login, /api/auth/mfa/verify) here; it is also the token issuer
+  /// the Drive trusts.
+  static const String ssoApiUrl = 'https://adminserver.worldposta.com';
 }
