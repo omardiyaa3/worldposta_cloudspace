@@ -12,6 +12,7 @@ import 'services/drive/drive_account_manager.dart';
 import 'services/drive/drive_account_stores.dart';
 import 'services/drive/drive_cache.dart';
 import 'services/drive/drive_sync_service.dart';
+import 'services/drive/tls_roots.dart';
 import 'screens/auth/drive_login_screen.dart';
 import 'screens/drive/drive_home_shell.dart';
 import 'services/reserved_region.dart';
@@ -46,10 +47,14 @@ void main(List<String> args) async {
 /// Release builds always verify TLS — production has a public certificate, and
 /// the old "host contains worldposta.com" rule also matched look-alike hosts
 /// (e.g. evil-worldposta.com) and any interceptor's certificate.
+///
+/// Windows, Android and Linux also trust the roots the app carries
+/// (tls_roots.dart): the Drive's certificate chains to a root many PCs lack.
 class _CloudSpaceHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
-    final client = super.createHttpClient(context);
+    final apple = Platform.isIOS || Platform.isMacOS;
+    final client = super.createHttpClient(context ?? (apple ? null : appSecurityContext()));
     if (kDebugMode) {
       client.badCertificateCallback = (X509Certificate cert, String host, int port) =>
           host == 'worldposta.com' || host.endsWith('.worldposta.com');

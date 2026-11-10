@@ -46,8 +46,10 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
   /// Set once the SSO has emailed a code: the address it went to.
   String? _codeSentTo;
 
-  // Windows keeps the browser sign-in; everywhere else signs in natively.
-  bool get _native => !Platform.isWindows;
+  // Every platform signs in natively (email, password, emailed code). Only an
+  // Active Directory server uses its own sign-in page: a web view, or on
+  // Windows the real browser.
+  bool get _native => true;
   bool _showServer = false;
   bool _showToken = false;
   String? _error;
@@ -119,6 +121,14 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
       if (mode == DriveAuthMode.unavailable) {
         return setState(() => _error = "Can't reach the Drive server. Check your connection and try again.");
       }
+      if (mode == DriveAuthMode.ad && Platform.isWindows) {
+        // WebView2 is unreliable: the Drive's own page, in the real browser.
+        final token = await DriveDesktopSso.signIn(server);
+        if (!mounted) return;
+        await context.read<DriveAccountManager>().addAccountFromToken(serverUrl: server, token: token);
+        if (mounted) widget.onSignedIn?.call();
+        return;
+      }
       if (mode == DriveAuthMode.ad) {
         // An Active Directory server signs in on its own page, not the SSO.
         await Navigator.of(context).push(MaterialPageRoute(
@@ -128,6 +138,8 @@ class _DriveLoginScreenState extends State<DriveLoginScreen> {
       }
       await _finish(sso, server, await sso.login(email, password));
     } on SsoSignInException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on DesktopSsoException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } on DriveException catch (e) {
       if (mounted) setState(() => _error = 'Sign-in failed: ${e.message}');
