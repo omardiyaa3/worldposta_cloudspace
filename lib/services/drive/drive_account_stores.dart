@@ -18,7 +18,15 @@ class SecureTokenStore implements TokenStore {
   // macOS: the classic keychain. The data-protection keychain (the plugin's
   // default) needs a keychain-access-group entitlement + profile; without it
   // every write failed and tokens silently fell back to prefs.
+  // The keychain entry's name is what macOS shows in its "wants to use your
+  // confidential information stored in …" prompt, so it says "Posta Drive"
+  // rather than the plugin's default "flutter_secure_storage_service".
+  static const _macService = 'Posta Drive';
   final FlutterSecureStorage _secure = const FlutterSecureStorage(
+    mOptions: MacOsOptions(useDataProtectionKeyChain: false, accountName: _macService),
+  );
+  // Where builds up to 1.0.6 kept tokens on the Mac; moved on first read.
+  final FlutterSecureStorage _legacyMac = const FlutterSecureStorage(
     mOptions: MacOsOptions(useDataProtectionKeyChain: false),
   );
   bool _useSecure = true;
@@ -29,7 +37,9 @@ class SecureTokenStore implements TokenStore {
   Future<String?> read(String accountId) async {
     if (_useSecure) {
       try {
-        return await _secure.read(key: _key(accountId));
+        final token = await _secure.read(key: _key(accountId));
+        if (token != null || !_isMac) return token;
+        return await _moveFromLegacy(accountId);
       } catch (e) {
         debugPrint('SecureTokenStore read fell back to prefs: $e');
         _useSecure = false;
@@ -37,6 +47,25 @@ class SecureTokenStore implements TokenStore {
     }
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_key(accountId));
+  }
+
+  static bool get _isMac => !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+
+  /// Moves a token saved under the old keychain name to the new one. A failure
+  /// here (the user declined macOS's prompt, say) just means signing in again.
+  Future<String?> _moveFromLegacy(String accountId) async {
+    try {
+      final token = await _legacyMac.read(key: _key(accountId));
+      if (token == null) return null;
+      await _secure.write(key: _key(accountId), value: token);
+      try {
+        await _legacyMac.delete(key: _key(accountId));
+      } catch (_) {}
+      return token;
+    } catch (e) {
+      debugPrint('SecureTokenStore: old keychain entry unreadable: $e');
+      return null;
+    }
   }
 
   @override
@@ -59,6 +88,11 @@ class SecureTokenStore implements TokenStore {
     try {
       await _secure.delete(key: _key(accountId));
     } catch (_) {}
+    if (_isMac) {
+      try {
+        await _legacyMac.delete(key: _key(accountId));
+      } catch (_) {}
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key(accountId));
   }
