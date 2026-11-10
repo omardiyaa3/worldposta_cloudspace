@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../config/drive_constants.dart';
@@ -28,45 +27,12 @@ class DriveSettingsScreen extends StatelessWidget {
     return 'CloudSpace/${safe.isEmpty ? sync.accountId : safe}';
   }
 
-  // Resolve the Android sync folder as a TOP-LEVEL public folder under
-  // /storage/emulated/0/<rel> (rel = "CloudSpace/<account>"), visible in the Files
-  // app alongside Download/DCIM. Needs storage permission (All-files access on
-  // Android 11+; legacy write on ≤10). Falls back to the app's external files dir.
+  // The Android sync folder is the app's own external files folder
+  // (…/Android/data/<pkg>/files/<rel>). Google Play doesn't allow "All files
+  // access" for an app like this, and the app's own folder needs no permission.
   Future<String?> _androidSyncPath(BuildContext context, String rel) async {
-    final messenger = ScaffoldMessenger.of(context); // capture before async gaps
-    final ext = await getExternalStorageDirectory(); // …/Android/data/<pkg>/files
-    final idx = ext?.path.indexOf('/Android/') ?? -1;
-    String? top = (ext != null && idx > 0) ? '${ext.path.substring(0, idx)}/$rel' : null;
-
-    if (top != null) {
-      await Permission.storage.request(); // legacy write (Android ≤10/12)
-      if (!await _tryCreateWritable(top)) {
-        await Permission.manageExternalStorage.request(); // All-files access (11+)
-        if (!await _tryCreateWritable(top)) top = null;
-      }
-    }
-    if (top != null) return top;
-
-    // Fallback: app external files dir (visible under Android/data/<pkg>/files).
-    messenger.showSnackBar(const SnackBar(
-      content: Text('Storage permission not granted — syncing to the app folder instead.'),
-      backgroundColor: AppColors.filePdf,
-    ));
     final base = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
     return '${base.path}/$rel';
-  }
-
-  Future<bool> _tryCreateWritable(String p) async {
-    try {
-      final d = Directory(p);
-      if (!await d.exists()) await d.create(recursive: true);
-      final probe = File('$p/.cs_write_test');
-      await probe.writeAsString('x');
-      await probe.delete();
-      return true;
-    } catch (_) {
-      return false;
-    }
   }
 
   Future<void> _pickFolder(BuildContext context, DriveSyncService sync) async {
