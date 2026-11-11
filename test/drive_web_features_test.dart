@@ -11,6 +11,7 @@ import 'package:http/testing.dart';
 
 import 'package:cloudspace_app/models/drive_file.dart';
 import 'package:cloudspace_app/screens/drive/drive_google_screen.dart';
+import 'package:cloudspace_app/services/drive/drive_google_connect.dart';
 import 'package:cloudspace_app/services/drive/drive_api.dart';
 import 'package:cloudspace_app/services/drive/drive_client.dart';
 import 'package:cloudspace_app/widgets/notification_bell.dart';
@@ -168,8 +169,11 @@ void main() {
   });
 
   group('Google Drive screen', () {
+    final connects = <String>[];
+    var connectResult = const GoogleConnectResult(GoogleConnectStatus.cancelled);
     Future<List<Uri>> pump(WidgetTester t, _Fake f) async {
       final launched = <Uri>[];
+      connects.clear();
       await t.pumpWidget(MaterialApp(
         home: Scaffold(
           body: DriveGoogleScreen(
@@ -179,6 +183,10 @@ void main() {
               launched.add(u);
               return true;
             },
+            connector: (api, server) async {
+              connects.add(server);
+              return connectResult;
+            },
           ),
         ),
       ));
@@ -186,15 +194,29 @@ void main() {
       return launched;
     }
 
-    testWidgets('not connected: explains where to connect on the web, without a link', (t) async {
-      final f = _Fake()..on('GET /api/v1/imports/google/connection', {'configured': true, 'connected': false});
+    testWidgets('not connected: Connect runs the in-app flow, then shows what was picked', (t) async {
+      var connected = false;
+      final f = _Fake();
+      f.routes['GET /api/v1/imports/google/connection'] = (_) =>
+          http.Response(jsonEncode({'data': {'configured': true, 'connected': connected}}), 200);
+      f.on('GET /api/v1/imports/google/browse', {
+        'items': [
+          {'id': 'g9', 'name': 'Picked.pdf', 'mime_type': 'application/pdf'}
+        ],
+        'next_page_token': '',
+      });
       final launched = await pump(t, f);
       expect(find.text('Connect Google Drive'), findsOneWidget);
+      expect(f.calls.where((r) => r.url.path.endsWith('/browse')), isEmpty);
+
+      connected = true;
+      connectResult = const GoogleConnectResult(GoogleConnectStatus.picked, 1);
       await t.tap(find.text('Connect Google Drive'));
       await t.pumpAndSettle();
-      expect(find.textContaining('drive.test'), findsOneWidget);
-      expect(launched, isEmpty); // no browser: it would land on the SSO page with its sign-up link
-      expect(f.calls.where((r) => r.url.path.endsWith('/browse')), isEmpty);
+      expect(connects, ['https://drive.test']);
+      expect(launched, isEmpty); // no outside browser link
+      expect(find.text('Added 1 item from Google Drive.'), findsOneWidget);
+      expect(find.text('Picked.pdf'), findsOneWidget);
     });
 
     testWidgets('connected: lists items, opens a folder, files open in Google', (t) async {
@@ -230,10 +252,12 @@ void main() {
       await t.pump();
       expect(launched.single.toString(), 'https://docs.google.com/g3');
 
+      connectResult = const GoogleConnectResult(GoogleConnectStatus.cancelled);
       await t.tap(find.text('Add from Google Drive'));
       await t.pumpAndSettle();
-      expect(find.textContaining('drive.test'), findsOneWidget);
+      expect(connects, ['https://drive.test']);
       expect(launched, hasLength(1)); // still only the Google file
+      expect(find.text('Inside.docx'), findsOneWidget); // cancelled: stays where it was
     });
 
     testWidgets('access expired while browsing → back to "connect"', (t) async {

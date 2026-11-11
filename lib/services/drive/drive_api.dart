@@ -858,6 +858,19 @@ class DriveApi {
     return GooglePage(items, (data?['next_page_token'] as String?) ?? '');
   }
 
+  /// A one-time page for the app's browser sheet that connects Google Drive
+  /// (if needed) and opens Google's picker, then returns to [callback]
+  /// (postadrive://… or a loopback URL). Returns the path on this server.
+  Future<String> googleAppLink(String callback) async {
+    final data = await _c.post('/api/v1/imports/google/app-link', body: {'callback': callback}) as Map?;
+    final path = data?['path'] as String?;
+    if (path == null || !path.startsWith('/')) throw DriveException('bad_response', 'The server sent no Google link.', 0);
+    return path;
+  }
+
+  /// Forget the Google connection (and revoke Posta Drive's access at Google).
+  Future<void> googleDisconnect() async => _c.delete('/api/v1/imports/google/connection');
+
   /// Copy Google items into Posta Drive ([targetFolderId] null = My Drive).
   /// Runs in the background; returns the import job id.
   Future<String> googleImport(List<String> ids, {String? targetFolderId, bool importSharing = true}) async {

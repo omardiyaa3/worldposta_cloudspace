@@ -1,12 +1,10 @@
 // drive_google_screen.dart — the "Google Drive" section: what the user gave
 // Posta Drive access to in Google Drive (Google's drive.file permission: only
-// the files and folders picked in Google's picker, which is web-only).
+// the files and folders picked in Google's picker).
 //
-// Browse folders, open an item in Google, or copy items into Posta Drive
-// (an import job on the server). Connecting and picking more happen on the web;
-// the app only says where (no link): opened signed-out in a browser, the Drive
-// website forwards to the SSO sign-in page, whose business sign-up link the
-// App Store doesn't allow (guideline 3.1.1).
+// Connect and "Add from Google Drive" open Google's consent and picker in the
+// system's sign-in sheet (DriveGoogleConnect); then browse folders, open an
+// item in Google, or copy items into Posta Drive (an import job on the server).
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -18,6 +16,7 @@ import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_api.dart';
 import '../../services/drive/drive_cache.dart';
 import '../../services/drive/drive_client.dart';
+import '../../services/drive/drive_google_connect.dart';
 import 'drive_files_screen.dart' show pickDriveFolder;
 
 const _googleFolderMime = 'application/vnd.google-apps.folder';
@@ -27,7 +26,8 @@ class DriveGoogleScreen extends StatefulWidget {
   final DriveApi? api;
   final String? serverUrl;
   final Future<bool> Function(Uri)? launcher;
-  const DriveGoogleScreen({super.key, this.api, this.serverUrl, this.launcher});
+  final Future<GoogleConnectResult> Function(DriveApi api, String serverUrl)? connector;
+  const DriveGoogleScreen({super.key, this.api, this.serverUrl, this.launcher, this.connector});
 
   @override
   State<DriveGoogleScreen> createState() => _DriveGoogleScreenState();
@@ -42,6 +42,7 @@ class _DriveGoogleScreenState extends State<DriveGoogleScreen> {
   String _next = '';
   bool _loadingMore = false;
   final Set<String> _selected = {};
+  bool _connecting = false;
 
   DriveApi get _api => widget.api ?? context.read<DriveAccountManager>().activeApi!;
   String get _server => widget.serverUrl ?? context.read<DriveAccountManager>().activeAccount?.serverUrl ?? '';
@@ -61,19 +62,54 @@ class _DriveGoogleScreenState extends State<DriveGoogleScreen> {
     await launchUrl(u, mode: LaunchMode.externalApplication);
   }
 
-  /// Where to do it on the web — text only, see the note at the top.
-  Future<void> _webOnly(String title, String step) {
-    final host = Uri.tryParse(_server)?.host;
-    final site = (host == null || host.isEmpty) ? 'the Posta Drive website' : host;
-    return showDialog<void>(
+  /// Connect Google Drive if needed, then Google's picker; reload afterwards.
+  Future<void> _connect() async {
+    if (_connecting) return;
+    setState(() => _connecting = true);
+    try {
+      final r = await (widget.connector ?? DriveGoogleConnect.run)(_api, _server);
+      switch (r.status) {
+        case GoogleConnectStatus.picked:
+          _snack(r.count == 1 ? 'Added 1 item from Google Drive.' : 'Added ${r.count} items from Google Drive.');
+        case GoogleConnectStatus.connected:
+          _snack('Google Drive is connected.');
+        case GoogleConnectStatus.cancelled:
+          break;
+        case GoogleConnectStatus.error:
+          _snack('Couldn’t connect Google Drive. Please try again.', ok: false);
+      }
+      if (r.status != GoogleConnectStatus.cancelled || !(_conn?.connected ?? false)) {
+        _path.clear();
+        await _load();
+      }
+    } catch (e) {
+      _snack('Couldn’t open Google Drive: ${friendlyError(e)}', ok: false);
+    } finally {
+      if (mounted) setState(() => _connecting = false);
+    }
+  }
+
+  Future<void> _disconnect() async {
+    final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: Text('This is done on the web: sign in to Posta Drive at $site, open Google Drive and choose “$step”. '
-            'Then come back here and refresh.'),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+        title: const Text('Disconnect Google Drive?'),
+        content: const Text('Posta Drive will no longer see the files you chose in Google Drive. '
+            'Copies already in Posta Drive stay. You can connect again any time.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Disconnect')),
+        ],
       ),
     );
+    if (ok != true) return;
+    try {
+      await _api.googleDisconnect();
+      _path.clear();
+      await _load();
+    } catch (e) {
+      _snack('Couldn’t disconnect: ${friendlyError(e)}', ok: false);
+    }
   }
 
   Future<void> _load() async {
@@ -165,7 +201,7 @@ class _DriveGoogleScreenState extends State<DriveGoogleScreen> {
       if (!mounted) return;
       setState(() => _selected.clear());
       final n = items.length;
-      _snack('Copying $n item${n == 1 ? '' : 's'} to Posta Drive — follow it in Settings → Imports on the web.');
+      _snack('Copying $n item${n == 1 ? '' : 's'} to Posta Drive. They’ll appear there in a moment.');
       // The copies land in a moment; drop cached listings so they show up.
       try {
         context.read<DriveCache>().clearFolderCache(dest == 'root' ? null : dest);
@@ -207,11 +243,19 @@ class _DriveGoogleScreenState extends State<DriveGoogleScreen> {
             ]),
             Row(mainAxisSize: MainAxisSize.min, children: [
               OutlinedButton.icon(
-                onPressed: () => _webOnly('Add from Google Drive', 'Add from Google Drive'),
-                icon: const Icon(Icons.add, size: 18),
+                onPressed: _connecting ? null : _connect,
+                icon: _connecting
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.add, size: 18),
                 label: const Text('Add from Google Drive'),
               ),
               IconButton(tooltip: 'Refresh', onPressed: _reload, icon: const Icon(Icons.refresh, color: AppColors.azure47)),
+              PopupMenuButton<String>(
+                tooltip: 'More',
+                icon: const Icon(Icons.more_vert, color: AppColors.muted),
+                onSelected: (_) => _disconnect(),
+                itemBuilder: (_) => const [PopupMenuItem(value: 'disconnect', child: Text('Disconnect Google Drive'))],
+              ),
             ]),
           ],
         ),
@@ -353,16 +397,16 @@ class _DriveGoogleScreenState extends State<DriveGoogleScreen> {
 
   Widget _notConnected() => _message(
         Icons.add_to_drive,
-        'Connect your Google account to open your Google Drive files here and copy them into Posta Drive. '
-        'Connecting happens once, on the web.',
+        'Connect your Google account, then choose the files and folders you want here. '
+        'You can open them in Google or copy them into Posta Drive.',
         action: ElevatedButton.icon(
-          onPressed: () => _webOnly('Connect Google Drive', 'Connect Google Drive'),
-          icon: const Icon(Icons.link, size: 18),
+          onPressed: _connecting ? null : _connect,
+          icon: _connecting
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.white))
+              : const Icon(Icons.link, size: 18),
           label: const Text('Connect Google Drive'),
           style: ElevatedButton.styleFrom(backgroundColor: AppColors.green700, foregroundColor: AppColors.white),
         ),
-        retry: true,
-        retryLabel: 'I’ve connected — refresh',
       );
 
   Widget _message(IconData icon, String text, {Widget? action, bool retry = false, String retryLabel = 'Try again'}) =>
