@@ -220,9 +220,10 @@ class DriveClient {
 
   /// Raw-body PUT (e.g. PUT /files/{id}/content). The path contains `/content`
   /// so the server bypasses its 1 MiB JSON body cap. Returns unwrapped `data`.
-  Future<dynamic> putBytes(String path, List<int> bytes, {String? contentType}) async {
+  Future<dynamic> putBytes(String path, List<int> bytes, {String? contentType, Map<String, String>? headers}) async {
     final req = http.Request('PUT', _uri(path));
     req.headers.addAll(_authHeaders);
+    if (headers != null) req.headers.addAll(headers);
     req.headers['Content-Type'] = contentType ?? 'application/octet-stream';
     req.bodyBytes = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
     final res = await http.Response.fromStream(await _http.send(req));

@@ -466,12 +466,10 @@ class DriveSyncService extends ChangeNotifier {
           final st = await File(_localPath(a.relPath)).stat();
           _journal[a.relPath] = SyncJournalEntry(fileId: a.remote!.id, isDir: a.remote!.isDirectory, remoteUpdatedMs: a.remote!.updatedAt?.millisecondsSinceEpoch ?? 0, size: a.remote!.sizeBytes, localMtimeMs: st.modified.millisecondsSinceEpoch);
         case SyncOp.download:
-          final bytes = await api.download(a.remote!.id);
-          final f = File(_localPath(a.relPath));
-          await f.parent.create(recursive: true);
-          await f.writeAsBytes(bytes);
-          final st = await f.stat();
-          _journal[a.relPath] = SyncJournalEntry(fileId: a.remote!.id, isDir: false, remoteUpdatedMs: a.remote!.updatedAt?.millisecondsSinceEpoch ?? 0, size: a.remote!.sizeBytes, localMtimeMs: st.modified.millisecondsSinceEpoch);
+          // Changed in both places and the Drive's version won: keep this
+          // device's edit beside it, so nothing is lost.
+          if (a.conflict) await _keepConflictCopy(a.relPath);
+          await _download(a.relPath, a.remote!);
           _downloaded++;
           _log2('download ${a.relPath}');
         case SyncOp.upload:
@@ -488,9 +486,39 @@ class DriveSyncService extends ChangeNotifier {
             // would create a duplicate file (same name, new id) instead of
             // updating — the bug behind "a new corrupted file appears".
             final bytes = await File(path).readAsBytes();
-            await api.replaceContent(existingId, bytes, contentType: mime);
+            // Only replace the version this sync knows: if someone saved after
+            // it (Office Online, another device), the server refuses (412)
+            // instead of silently dropping their save, and the conflict
+            // setting decides below.
+            final knownMs = _journal[a.relPath]?.remoteUpdatedMs ?? 0;
+            final base = a.remote?.updatedAt ??
+                (knownMs > 0 ? DateTime.fromMillisecondsSinceEpoch(knownMs, isUtc: true) : null);
+            try {
+              await api.replaceContent(existingId, bytes, contentType: mime, ifUnchangedSince: base);
+              _log2('upload (new version) ${a.relPath}');
+            } on DriveException catch (e) {
+              if (e.status != 412) rethrow;
+              final fresh = await api.fileDetail(existingId);
+              final local = await File(path).stat();
+              final keep = resolveLateConflict(
+                conflict: _conflict,
+                direction: _direction,
+                remoteMs: fresh.updatedAt?.millisecondsSinceEpoch ?? 0,
+                localMtimeMs: local.modified.millisecondsSinceEpoch,
+              );
+              if (keep == SyncOp.download) {
+                _log2('conflict ${a.relPath}: changed on the Drive since the last sync — keeping the Drive\'s version, '
+                    'this device\'s edit saved as a conflict copy');
+                await _keepConflictCopy(a.relPath);
+                await _download(a.relPath, fresh);
+                _downloaded++;
+                break;
+              }
+              _log2('conflict ${a.relPath}: changed on the Drive since the last sync — keeping this device\'s version '
+                  '(the Drive\'s stays in version history)');
+              await api.replaceContent(existingId, bytes, contentType: mime, ifUnchangedSince: fresh.updatedAt);
+            }
             fileId = existingId;
-            _log2('upload (new version) ${a.relPath}');
           } else {
             // Genuinely new file → tus (streams, resumable), then find it by name.
             final parent = await _remoteParentFor(a.relPath);
@@ -538,6 +566,28 @@ class DriveSyncService extends ChangeNotifier {
       _errors++;
       _log2('FAIL ${a.op.name} ${a.relPath}: $e');
     }
+  }
+
+  /// Writes the server's [remote] over the local file at [rel] and records it.
+  Future<void> _download(String rel, DriveFile remote) async {
+    final bytes = await api.download(remote.id);
+    final f = File(_localPath(rel));
+    await f.parent.create(recursive: true);
+    await f.writeAsBytes(bytes);
+    final st = await f.stat();
+    _journal[rel] = SyncJournalEntry(fileId: remote.id, isDir: false, remoteUpdatedMs: remote.updatedAt?.millisecondsSinceEpoch ?? 0, size: remote.sizeBytes, localMtimeMs: st.modified.millisecondsSinceEpoch);
+  }
+
+  /// Copies the local file at [rel] to "name (conflict copy DATE TIME).ext"
+  /// next to it (two-way sync then uploads the copy like any new file).
+  Future<void> _keepConflictCopy(String rel) async {
+    final src = File(_localPath(rel));
+    if (!await src.exists()) return;
+    final parts = rel.split('/');
+    parts[parts.length - 1] = conflictCopyName(parts.last, DateTime.now());
+    final copyRel = parts.join('/');
+    await src.copy(_localPath(copyRel));
+    _log2('kept this device\'s edit as $copyRel');
   }
 
   @override

@@ -19,7 +19,10 @@ class SyncAction {
   final SyncOp op;
   final String relPath; // relative to the sync roots, '/' separators
   final DriveFile? remote; // present for download/deleteLocal/baseline
-  const SyncAction(this.op, this.relPath, {this.remote});
+  /// The file changed on BOTH sides and the conflict setting chose [op]: a
+  /// conflict download first keeps the local edit as a conflict copy.
+  final bool conflict;
+  const SyncAction(this.op, this.relPath, {this.remote, this.conflict = false});
   @override
   String toString() => '${op.name} $relPath';
 }
@@ -126,11 +129,11 @@ List<SyncAction> reconcile({
     // ── files ──
     final remoteMs = r?.updatedAt?.millisecondsSinceEpoch ?? 0;
 
-    void add(SyncOp op) {
+    void add(SyncOp op, {bool conflict = false}) {
       if (op == SyncOp.download && !canDownload) return;
       if (op == SyncOp.upload && !canUpload) return;
       if (op == SyncOp.deleteLocal && !canDownload) return;
-      fileActions.add(SyncAction(op, p, remote: r));
+      fileActions.add(SyncAction(op, p, remote: r, conflict: conflict));
     }
 
     if (j == null) {
@@ -142,7 +145,7 @@ List<SyncAction> reconcile({
         if (l.size == r.sizeBytes) {
           fileActions.add(SyncAction(SyncOp.baseline, p, remote: r)); // assume equal
         } else {
-          add(resolve(remoteMs, l.mtimeMs)); // first-sight conflict
+          add(resolve(remoteMs, l.mtimeMs), conflict: true); // first-sight conflict
         }
       }
       continue;
@@ -161,7 +164,7 @@ List<SyncAction> reconcile({
 
     if (r != null && l != null) {
       if (remoteChanged && localChanged) {
-        add(resolve(remoteMs, l.mtimeMs));
+        add(resolve(remoteMs, l.mtimeMs), conflict: true);
       } else if (remoteChanged) {
         add(SyncOp.download);
       } else if (localChanged) {
@@ -183,6 +186,36 @@ List<SyncAction> reconcile({
 
   dirActions.sort((a, b) => a.relPath.split('/').length.compareTo(b.relPath.split('/').length));
   return [...dirActions, ...fileActions];
+}
+
+/// After an upload was refused because the server copy changed since the last
+/// sync (someone else saved meanwhile): which side the conflict setting keeps.
+/// Same rules as a conflict found while scanning, with the same direction
+/// limits.
+SyncOp resolveLateConflict({
+  required ConflictPolicy conflict,
+  required SyncDirection direction,
+  required int remoteMs,
+  required int localMtimeMs,
+}) {
+  if (direction == SyncDirection.uploadOnly) return SyncOp.upload;
+  if (direction == SyncDirection.downloadOnly) return SyncOp.download;
+  return switch (conflict) {
+    ConflictPolicy.localWins => SyncOp.upload,
+    ConflictPolicy.serverWins => SyncOp.download,
+    ConflictPolicy.newestWins => remoteMs >= localMtimeMs ? SyncOp.download : SyncOp.upload,
+  };
+}
+
+/// The name for a local edit kept aside when the server's version wins:
+/// "Report (conflict copy 2026-11-11 1530).docx".
+String conflictCopyName(String name, DateTime when) {
+  String two(int x) => x.toString().padLeft(2, '0');
+  final stamp = '${when.year}-${two(when.month)}-${two(when.day)} ${two(when.hour)}${two(when.minute)}';
+  final dot = name.lastIndexOf('.');
+  return dot > 0
+      ? '${name.substring(0, dot)} (conflict copy $stamp)${name.substring(dot)}'
+      : '$name (conflict copy $stamp)';
 }
 
 /// Whether [rel] is an excluded folder or inside one ([excluded] holds folder

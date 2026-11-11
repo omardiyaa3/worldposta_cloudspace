@@ -218,4 +218,37 @@ void main() {
     expect(paths.where((p) => isExcludedPath(p, ex)), isEmpty);
     expect(paths, containsAll(['keep.txt', 'Projects', 'Projects/New', 'Projects/New/y.docx']));
   });
+
+  test('a both-sides change is marked as a conflict (so a download keeps a conflict copy)', () {
+    final a = reconcile(
+      local: bothChangedLocal(),
+      remote: bothChangedRemote(),
+      journal: bothChangedJournal(),
+      conflict: ConflictPolicy.serverWins,
+    );
+    expect(a.single.op, SyncOp.download);
+    expect(a.single.conflict, isTrue);
+    final plain = reconcile(local: {'a.txt': _lf()}, remote: {'a.txt': _rf('r1', 'a.txt', size: 20, updatedMs: 9000)},
+        journal: {'a.txt': _j('r1')});
+    expect(plain.single.op, SyncOp.download);
+    expect(plain.single.conflict, isFalse); // only the Drive changed: nothing to keep aside
+  });
+
+  test('late conflict (upload refused): the setting and direction decide', () {
+    SyncOp late(ConflictPolicy c, {SyncDirection d = SyncDirection.twoWay, int remote = 2000, int local = 1000}) =>
+        resolveLateConflict(conflict: c, direction: d, remoteMs: remote, localMtimeMs: local);
+    expect(late(ConflictPolicy.localWins), SyncOp.upload);
+    expect(late(ConflictPolicy.serverWins), SyncOp.download);
+    expect(late(ConflictPolicy.newestWins), SyncOp.download); // the Drive's save is newer
+    expect(late(ConflictPolicy.newestWins, local: 3000), SyncOp.upload);
+    expect(late(ConflictPolicy.serverWins, d: SyncDirection.uploadOnly), SyncOp.upload);
+    expect(late(ConflictPolicy.localWins, d: SyncDirection.downloadOnly), SyncOp.download);
+  });
+
+  test('conflict copy names keep the extension', () {
+    final when = DateTime(2026, 11, 11, 15, 30);
+    expect(conflictCopyName('Report.docx', when), 'Report (conflict copy 2026-11-11 1530).docx');
+    expect(conflictCopyName('notes', when), 'notes (conflict copy 2026-11-11 1530)');
+    expect(conflictCopyName('.env', when), '.env (conflict copy 2026-11-11 1530)');
+  });
 }

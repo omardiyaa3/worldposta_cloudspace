@@ -697,8 +697,16 @@ class DriveApi {
 
   /// Replace an existing file's content, creating a new version (raw PUT,
   /// bypasses the 1 MiB body cap).
-  Future<void> replaceContent(String id, List<int> bytes, {String? contentType}) async {
-    await _c.putBytes('/api/v1/files/$id/content', bytes, contentType: contentType);
+  /// Replace a file's content with a new version. With [ifUnchangedSince] (the
+  /// file's updated_at as last seen) the server refuses with 412
+  /// `changed_since` when someone saved a newer version in the meantime,
+  /// instead of overwriting it.
+  Future<void> replaceContent(String id, List<int> bytes, {String? contentType, DateTime? ifUnchangedSince}) async {
+    await _c.putBytes('/api/v1/files/$id/content', bytes,
+        contentType: contentType,
+        headers: ifUnchangedSince == null
+            ? null
+            : {'X-Drive-Base-Updated-At': ifUnchangedSince.toUtc().toIso8601String()});
   }
 
   // ── versions ────────────────────────────────────────────────────────────
