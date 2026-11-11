@@ -25,18 +25,28 @@ class DriveSyncConfig extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 24, vertical: 16),
         children: [
           // ── Conflict resolution ──
-          _card('Conflict Resolution', Icons.merge_type, [
-            const Text('When the same file changed both on your computer and on the Drive since the last sync, who wins?',
+          _card('If a file changed in both places', Icons.merge_type, [
+            const Text(
+                'Only for a file edited both on this device and on the Drive before they could sync. '
+                'A change made in just one place always copies to the other.',
                 style: TextStyle(fontSize: 13, color: AppColors.body)),
             const SizedBox(height: 12),
             _dropdown<ConflictPolicy>(
               value: sync.conflictPolicy,
               items: const {
-                ConflictPolicy.newestWins: 'Newest wins (recommended)',
-                ConflictPolicy.serverWins: 'Server (Drive) wins',
-                ConflictPolicy.localWins: 'Local (this computer) wins',
+                ConflictPolicy.newestWins: 'Keep the newer version (recommended)',
+                ConflictPolicy.serverWins: 'Keep the Drive’s version',
+                ConflictPolicy.localWins: 'Keep this device’s version',
               },
               onChanged: (v) => sync.setConflictPolicy(v),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'Deleting a file on this device never deletes it from the Drive; it downloads again. '
+                'To have this device always overwrite the Drive, choose “Upload only” below.',
+                style: TextStyle(fontSize: 11, color: AppColors.muted),
+              ),
             ),
           ]),
           const SizedBox(height: 16),
