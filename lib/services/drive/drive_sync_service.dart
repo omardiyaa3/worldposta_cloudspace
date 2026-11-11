@@ -41,6 +41,8 @@ class DriveSyncService extends ChangeNotifier {
 
   String? _folder;
   String? _remoteParentId; // null → drive root
+  // Folders (paths under the sync root) the user chose not to sync.
+  Set<String> _excluded = {};
   bool _enabled = false;
   bool _syncing = false;
   String _status = 'Not syncing';
@@ -70,6 +72,18 @@ class DriveSyncService extends ChangeNotifier {
   int get errors => _errors;
   String get currentFile => _currentFile;
   List<String> get log => List.unmodifiable(_log);
+
+  String? get remoteParentId => _remoteParentId;
+  Set<String> get excludedFolders => Set.unmodifiable(_excluded);
+
+  /// Which Drive folders not to sync. Applies from the next sync; copies
+  /// already on this device stay, and nothing is deleted on the Drive.
+  Future<void> setExcludedFolders(Set<String> folders) async {
+    _excluded = {...folders};
+    await _persistConfig();
+    notifyListeners();
+    if (_enabled) unawaited(syncNow());
+  }
 
   ConflictPolicy get conflictPolicy => _conflict;
   SyncDirection get syncDirection => _direction;
@@ -117,6 +131,7 @@ class DriveSyncService extends ChangeNotifier {
     _direction = SyncDirection.values.firstWhere((e) => e.name == prefs.getString(_pk('direction')), orElse: () => SyncDirection.twoWay);
     _periodic = prefs.getBool(_pk('periodic')) ?? false;
     _intervalSeconds = prefs.getInt(_pk('interval')) ?? 30;
+    _excluded = {...?prefs.getStringList(_pk('excluded'))};
     await _restoreFolderAccess();
     if (_folder != null) {
       await _reanchorMobileFolder(); // fix stale app-container paths (see below)
@@ -188,6 +203,7 @@ class DriveSyncService extends ChangeNotifier {
     await prefs.setString(_pk('direction'), _direction.name);
     await prefs.setBool(_pk('periodic'), _periodic);
     await prefs.setInt(_pk('interval'), _intervalSeconds);
+    await prefs.setStringList(_pk('excluded'), _excluded.toList()..sort());
   }
 
   Future<void> setFolder(String path, {String? remoteParentId}) async {
@@ -322,6 +338,8 @@ class DriveSyncService extends ChangeNotifier {
         direction: _direction,
         trace: _log2, // per-file change-detection diagnostics in the Sync Monitor
       );
+      // Folders the user chose not to sync: leave both sides alone there.
+      actions = withoutExcluded(actions, _excluded);
       // SAFETY GUARD against data loss: a remote scan that comes back empty (or
       // far short) — a flaky/partial listing, an auth hiccup, a wrong parent — makes
       // the reconcile think every synced file was deleted on the server and wipe
@@ -345,7 +363,8 @@ class DriveSyncService extends ChangeNotifier {
         }
       }
       // Prune journal entries whose path vanished from both sides.
-      _journal.removeWhere((p, _) => !local.containsKey(p) && !remote.containsKey(p));
+      // (Excluded folders aren't scanned: keep their entries for when they return.)
+      _journal.removeWhere((p, _) => !local.containsKey(p) && !remote.containsKey(p) && !isExcludedPath(p, _excluded));
       await _saveJournal();
       _lastSync = DateTime.now();
       final parts = <String>[];
@@ -386,6 +405,7 @@ class DriveSyncService extends ChangeNotifier {
       final rel = e.path.substring(root.path.length).replaceAll(Platform.pathSeparator, '/').replaceFirst(RegExp('^/'), '');
       final name = rel.split('/').last;
       if (_ignoredName(name)) continue; // hidden, journal, Office lock files, OS junk
+      if (isExcludedPath(rel, _excluded) && !_excluded.contains(rel)) continue; // inside a folder not synced
       if (e is Directory) {
         out[rel] = const LocalStat(isDir: true, size: 0, mtimeMs: 0);
       } else if (e is File) {
@@ -404,7 +424,7 @@ class DriveSyncService extends ChangeNotifier {
         if (_ignoredName(f.name)) continue; // don't sync Office lock files / OS junk
         final rel = prefix.isEmpty ? f.name : '$prefix/${f.name}';
         out[rel] = f;
-        if (f.isDirectory) await walk(f.id, rel);
+        if (f.isDirectory && !isExcludedPath(rel, _excluded)) await walk(f.id, rel); // not inside unsynced folders
       }
     }
 

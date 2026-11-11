@@ -184,3 +184,17 @@ List<SyncAction> reconcile({
   dirActions.sort((a, b) => a.relPath.split('/').length.compareTo(b.relPath.split('/').length));
   return [...dirActions, ...fileActions];
 }
+
+/// Whether [rel] is an excluded folder or inside one ([excluded] holds folder
+/// paths relative to the sync root, '/' separators).
+bool isExcludedPath(String rel, Set<String> excluded) {
+  for (final e in excluded) {
+    if (rel == e || rel.startsWith('$e/')) return true;
+  }
+  return false;
+}
+
+/// Drops every action inside a folder the user chose not to sync: nothing is
+/// downloaded, uploaded, created or deleted there, on either side.
+List<SyncAction> withoutExcluded(List<SyncAction> actions, Set<String> excluded) =>
+    excluded.isEmpty ? actions : actions.where((a) => !isExcludedPath(a.relPath, excluded)).toList();

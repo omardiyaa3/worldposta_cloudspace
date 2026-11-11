@@ -13,6 +13,7 @@ import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_client.dart';
 import '../../services/drive/drive_sync_service.dart';
 import 'drive_sync_config.dart';
+import 'drive_sync_folders.dart';
 import 'drive_sync_monitor.dart';
 
 class DriveSettingsScreen extends StatelessWidget {
@@ -156,6 +157,14 @@ class DriveSettingsScreen extends StatelessWidget {
                   onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DriveSyncMonitor())),
                   icon: const Icon(Icons.monitor_heart_outlined, size: 18, color: AppColors.green700),
                   label: const Text('Monitor', style: TextStyle(color: AppColors.green700)),
+                ),
+              if (sync.syncFolder != null)
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DriveSyncFolders())),
+                  icon: const Icon(Icons.checklist, size: 18, color: AppColors.green700),
+                  label: Text(
+                      sync.excludedFolders.isEmpty ? 'Choose folders' : 'Choose folders (${sync.excludedFolders.length} off)',
+                      style: const TextStyle(color: AppColors.green700)),
                 ),
               TextButton.icon(
                 onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DriveSyncConfig())),

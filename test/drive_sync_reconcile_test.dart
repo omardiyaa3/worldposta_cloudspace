@@ -187,4 +187,35 @@ void main() {
     // Local changed only → normally upload; download-only suppresses that, no action.
     expect(a.where((x) => x.op == SyncOp.upload), isEmpty);
   });
+
+  // ── folders the user chose not to sync ──
+  test('excluded folders: nothing happens inside them, on either side', () {
+    final ex = {'Archive', 'Projects/Old'};
+    expect(isExcludedPath('Archive', ex), isTrue);
+    expect(isExcludedPath('Archive/2019/a.pdf', ex), isTrue);
+    expect(isExcludedPath('Archived.txt', ex), isFalse); // same prefix, different name
+    expect(isExcludedPath('Projects/Old/x.docx', ex), isTrue);
+    expect(isExcludedPath('Projects/New/x.docx', ex), isFalse);
+
+    final a = withoutExcluded(
+      reconcile(
+        local: {'Archive/mine.txt': _lf(), 'keep.txt': _lf()},
+        remote: {
+          'Archive': _rf('d1', 'Archive', dir: true),
+          'Projects': _rf('d2', 'Projects', dir: true),
+          'Projects/Old': _rf('d3', 'Old', dir: true),
+          'Projects/Old/x.docx': _rf('r1', 'x.docx'),
+          'Projects/New': _rf('d4', 'New', dir: true),
+          'Projects/New/y.docx': _rf('r2', 'y.docx'),
+        },
+        // Previously synced, now gone from the remote scan (not walked):
+        // must NOT turn into a local delete.
+        journal: {'Archive/old.txt': _j('r9')},
+      ),
+      ex,
+    );
+    final paths = a.map((x) => x.relPath).toSet();
+    expect(paths.where((p) => isExcludedPath(p, ex)), isEmpty);
+    expect(paths, containsAll(['keep.txt', 'Projects', 'Projects/New', 'Projects/New/y.docx']));
+  });
 }
