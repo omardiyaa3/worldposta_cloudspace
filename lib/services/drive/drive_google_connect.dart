@@ -16,6 +16,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'drive_api.dart';
 
@@ -76,7 +77,10 @@ class DriveGoogleConnect {
         req.response.headers.contentType = ContentType.html;
         req.response.write(_donePage(r.status != GoogleConnectStatus.error));
         await req.response.close();
-        if (!done.isCompleted) done.complete(r);
+        if (!done.isCompleted) {
+          done.complete(r);
+          await _bringAppForward();
+        }
       });
       if (!await launchUrl(Uri.parse('$base$path'), mode: LaunchMode.externalApplication)) {
         await sub.cancel();
@@ -90,6 +94,17 @@ class DriveGoogleConnect {
       }
     } finally {
       await server.close(force: true);
+    }
+  }
+
+  /// The browser finished: put the Posta Drive window back in front so the
+  /// picked files are right there (the browser tab says it can be closed).
+  static Future<void> _bringAppForward() async {
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (_) {
+      // No window manager (tests): nothing to bring forward.
     }
   }
 
