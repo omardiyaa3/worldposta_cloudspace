@@ -28,6 +28,18 @@ void main() {
     expect(l.pending, isNull);
   });
 
+  test('the same link arriving twice at once opens once; requeue always queues', () {
+    final l = DriveFileLinks.instance;
+    l.take();
+    final u = Uri.parse('https://drive.worldposta.com/file/3f2b8c1e-0a4d-4e6f-9b1a-2c3d4e5f6a7c');
+    l.push(u);
+    expect(l.take(), u);
+    l.push(u); // duplicate right after
+    expect(l.pending, isNull);
+    l.requeue(u);
+    expect(l.take(), u);
+  });
+
   group('which account opens the link', () {
     final a = acct('a', 'https://drive.worldposta.com');
     final b = acct('b', 'https://drive.worldposta.com/');

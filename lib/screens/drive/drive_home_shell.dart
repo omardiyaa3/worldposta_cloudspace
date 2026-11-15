@@ -136,7 +136,7 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
           if (target.accountId != mgr.activeAccount?.id) {
             // Another signed-in account can see it: switch, and that
             // account's shell opens it.
-            links.push(u);
+            links.requeue(u);
             await mgr.switchAccount(target.accountId!);
             return;
           }

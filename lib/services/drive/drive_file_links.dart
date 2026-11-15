@@ -95,9 +95,25 @@ class DriveFileLinks extends ChangeNotifier {
   /// Queue [u] if it is a Drive file link.
   void push(Uri u) {
     if (fileIdFromLink(u) == null) return;
+    // The same link can arrive twice at launch (as the launch link and on the
+    // stream): open it once.
+    final now = DateTime.now();
+    if (u == _last && _lastAt != null && now.difference(_lastAt!) < const Duration(seconds: 3)) return;
+    _last = u;
+    _lastAt = now;
     _pending = u;
     notifyListeners();
   }
+
+  /// Re-queues [u] for the next shell (after switching to the account that can
+  /// see it), bypassing the duplicate check.
+  void requeue(Uri u) {
+    _pending = u;
+    notifyListeners();
+  }
+
+  Uri? _last;
+  DateTime? _lastAt;
 
   /// Take the pending link (clears it).
   Uri? take() {

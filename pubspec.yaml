@@ -1,7 +1,7 @@
 name: cloudspace_app
 description: "CloudSpace - Your cloud, your way."
 publish_to: 'none'
-version: 1.0.7+24
+version: 1.0.7+25
 
 environment:
   sdk: ^3.9.2
