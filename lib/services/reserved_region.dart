@@ -24,7 +24,11 @@ class ReservedTopRegion {
     double n(String k) => (m[k] as num?)?.toDouble() ?? 0;
     final r = Rect.fromLTRB(n('left'), n('top'), n('right'), n('bottom'));
     if (r.isEmpty) return null;
-    return ReservedTopRegion(r, n('systemTop'));
+    // The bubble holds the status bar, so it starts above the system's top
+    // inset; anything lower (a floating call window) is not it.
+    final top = n('systemTop');
+    if (top > 0 && r.top >= top) return null;
+    return ReservedTopRegion(r, top);
   }
 
   @override

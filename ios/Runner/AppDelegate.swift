@@ -54,10 +54,16 @@ class RunnerViewController: FlutterViewController {
     // The system's own top inset, without what we added last time.
     let systemTop = view.safeAreaInsets.top - additionalSafeAreaInsets.top
     var region: CGRect?
-    for r in view.reservedRegions(kind: .occlusion) where r.isActive {
-      // Only regions at the top of the screen (status / camera bubble).
-      guard r.frame.minY < bounds.height * 0.25 else { continue }
-      region = region.map { $0.union(r.frame) } ?? r.frame
+    // Only the iPhone Duo's status/camera bubble: on a phone, starting inside
+    // the status bar. Floating windows such as a call's picture-in-picture are
+    // reported as occlusions too, but they stay below the status bar (and on
+    // iPad there is no bubble at all); treating one as the bubble squeezed the
+    // whole layout beside it.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      for r in view.reservedRegions(kind: .occlusion) where r.isActive {
+        guard r.frame.minY < max(systemTop, 1), r.frame.height <= 160 else { continue }
+        region = region.map { $0.union(r.frame) } ?? r.frame
+      }
     }
     let extra = max(0, ((region?.maxY ?? systemTop) - systemTop).rounded(.up))
     if abs(additionalSafeAreaInsets.top - extra) > 0.5 {
