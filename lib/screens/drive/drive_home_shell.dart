@@ -3,15 +3,18 @@
 // routing. Account switching/add/logout live in the profile menu.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/theme.dart';
 import '../../services/drive/drive_account_manager.dart';
 import '../../services/drive/drive_cache.dart';
 import '../../services/drive/drive_api.dart';
 import '../../services/drive/drive_client.dart';
+import '../../services/drive/drive_file_links.dart';
 import '../../services/drive/drive_sync_service.dart';
 import '../../widgets/drive_sidebar.dart';
 import '../../widgets/notification_bell.dart';
@@ -100,8 +103,84 @@ class _DriveHomeShellState extends State<DriveHomeShell> {
     if (_searchQuery.isNotEmpty) setState(() => _searchQuery = '');
   }
 
+  // ── file links (https://<drive>/file/<id> opened from Link, Mail, …) ──────
+
+  bool _handlingLink = false;
+
+  @override
+  void initState() {
+    super.initState();
+    DriveFileLinks.instance.addListener(_onFileLink);
+    // A link that arrived before sign-in, or before an account switch.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onFileLink());
+  }
+
+  Future<void> _onFileLink() async {
+    if (_handlingLink || !mounted) return;
+    final links = DriveFileLinks.instance;
+    final u = links.take();
+    final id = u == null ? null : fileIdFromLink(u);
+    if (u == null || id == null) return;
+    _handlingLink = true;
+    try {
+      final mgr = context.read<DriveAccountManager>();
+      final target = await findAccountForFile(
+        linkHost: u.host,
+        accounts: mgr.accounts,
+        activeId: mgr.activeAccount?.id,
+        probe: (a) => mgr.apiForAccount(a).fileDetail(id),
+      );
+      if (!mounted) return;
+      switch (target.outcome) {
+        case FileLinkOutcome.open:
+          if (target.accountId != mgr.activeAccount?.id) {
+            // Another signed-in account can see it: switch, and that
+            // account's shell opens it.
+            links.push(u);
+            await mgr.switchAccount(target.accountId!);
+            return;
+          }
+          await _openFromNotification(id);
+        case FileLinkOutcome.noAccess:
+          await _showNoAccess(u, mgr.activeAccount?.email);
+        case FileLinkOutcome.failed:
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Couldn’t open the file: ${friendlyError(target.error!)}'),
+              backgroundColor: AppColors.filePdf));
+      }
+    } finally {
+      _handlingLink = false;
+    }
+  }
+
+  Future<void> _showNoAccess(Uri link, String? email) {
+    // In-app browser only: handing the link to the system would bring it
+    // straight back here. (No such view on the Mac, so no button there.)
+    final canBrowse = Platform.isIOS || Platform.isAndroid;
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('You don’t have access to this file'),
+        content: Text('Ask the person who sent it to share it with you.'
+            '${email == null ? '' : '\n\nYou’re signed in as $email.'}'),
+        actions: [
+          if (canBrowse)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                launchUrl(link, mode: LaunchMode.inAppBrowserView);
+              },
+              child: const Text('Open in browser'),
+            ),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    DriveFileLinks.instance.removeListener(_onFileLink);
     _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();

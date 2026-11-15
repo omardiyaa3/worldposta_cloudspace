@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'config/theme.dart';
 import 'services/drive/drive_account_manager.dart';
+import 'services/drive/drive_file_links.dart';
 import 'services/drive/drive_account_stores.dart';
 import 'services/drive/drive_cache.dart';
 import 'services/drive/drive_sync_service.dart';
@@ -89,6 +91,7 @@ class _CloudSpaceAppState extends State<CloudSpaceApp> with TrayListener, Window
   Future<void> _init() async {
     await _accountMgr.init();
     _accountMgr.addListener(_onAuthChanged);
+    unawaited(DriveFileLinks.instance.start()); // Drive file links open here
     _setupCache();
     if (_isDesktop) await _initTray();
     setState(() => _initialized = true);
