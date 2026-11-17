@@ -209,7 +209,7 @@ void showDriveActivitySheet(BuildContext context, DriveFile file) {
           : (snap.data?.isEmpty ?? true)
               ? const Center(child: Text('No activity yet', style: TextStyle(color: AppColors.muted)))
               : ListView(children: snap.data!.map((a) {
-                  final label = a.action.replaceAll('.', ' ');
+                  final label = a.describe(context.read<DriveAccountManager>().activeAccount?.userId);
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [

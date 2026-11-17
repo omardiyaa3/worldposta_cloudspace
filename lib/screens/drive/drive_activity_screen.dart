@@ -38,10 +38,8 @@ class DriveActivityScreen extends StatelessWidget {
     return '${d.month}/${d.day}/${d.year}';
   }
 
-  String _label(DriveActivity a) {
-    // Server actions are dotted verbs (file.created.webdav, permission.granted…).
-    return a.action.replaceAll('.webdav', '').replaceAll('.', ' ');
-  }
+  // Server actions are dotted verbs (file.created, permission.granted…).
+  String _label(DriveActivity a) => a.actionLabel;
 
   @override
   Widget build(BuildContext context) {

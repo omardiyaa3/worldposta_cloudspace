@@ -248,6 +248,10 @@ class DriveActivity {
   final String? resourceType;
   final String outcome;
   final DateTime? occurredAt;
+  // Who did it (per-file activity only; empty when unknown).
+  final String? actorUserId;
+  final String actorName;
+  final String actorEmail;
   const DriveActivity({
     required this.id,
     required this.action,
@@ -255,6 +259,9 @@ class DriveActivity {
     this.resourceType,
     required this.outcome,
     this.occurredAt,
+    this.actorUserId,
+    this.actorName = '',
+    this.actorEmail = '',
   });
   factory DriveActivity.fromJson(Map<String, dynamic> j) => DriveActivity(
         id: j['id'].toString(),
@@ -264,7 +271,67 @@ class DriveActivity {
         resourceType: j['resource_type'] as String?,
         outcome: (j['outcome'] as String?) ?? '',
         occurredAt: j['occurred_at'] is String ? DateTime.tryParse(j['occurred_at'] as String) : null,
+        actorUserId: j['actor_user_id'] as String?,
+        actorName: ((j['actor_name'] as String?) ?? '').trim(),
+        actorEmail: ((j['actor_email'] as String?) ?? '').trim(),
       );
+
+  /// "You", the person's name or email, or '' when unknown.
+  String actor(String? myUserId) {
+    if (myUserId != null && actorUserId == myUserId) return 'You';
+    return actorName.isNotEmpty ? actorName : actorEmail;
+  }
+
+  /// The action in plain words ("Edited", "Granted access"…).
+  String get actionLabel {
+    final a = action.replaceAll('.webdav', '');
+    const labels = {
+      'file.created': 'Created',
+      'file.uploaded': 'Uploaded',
+      'file.updated': 'Edited',
+      'file.replaced': 'Replaced contents',
+      'file.version_added': 'Saved a new version',
+      'file.version_kept': 'Kept both versions (conflict copy)',
+      'file.version_restored': 'Restored a previous version',
+      'version.restored': 'Restored a previous version',
+      'file.renamed': 'Renamed',
+      'file.moved': 'Moved',
+      'file.copied': 'Copied',
+      'file.deleted': 'Moved to trash',
+      'file.restored': 'Restored from trash',
+      'file.purged': 'Deleted permanently',
+      'file.imported': 'Imported from Google Drive',
+      'file.locked': 'Locked',
+      'file.unlocked': 'Unlocked',
+      'file.classified': 'Classified',
+      'file.legal_hold_set': 'Set legal hold',
+      'file.legal_hold_cleared': 'Cleared legal hold',
+      'file.ownership_transferred': 'Transferred ownership',
+      'file.commented': 'Commented',
+      'file.downloaded': 'Downloaded',
+      'file.viewed': 'Viewed',
+      'permission.granted': 'Granted access',
+      'permission.revoked': 'Removed access',
+      'permission.expired': 'Access expired',
+      'share.created': 'Created a share link',
+      'share.revoked': 'Removed a share link',
+      'share.accessed': 'Opened the share link',
+      'share.invitation_created': 'Invited someone',
+      'share.invitation_revoked': 'Cancelled an invitation',
+      'wopi.opened': 'Opened in Office',
+      'wopi.saved': 'Saved from Office',
+    };
+    final known = labels[a];
+    if (known != null) return known;
+    final tail = a.split('.').last.replaceAll('_', ' ');
+    return tail.isEmpty ? a : tail[0].toUpperCase() + tail.substring(1);
+  }
+
+  /// One line for a file's activity list: "Sara Ali · Edited".
+  String describe(String? myUserId) {
+    final who = actor(myUserId);
+    return who.isEmpty ? actionLabel : '$who · $actionLabel';
+  }
 }
 
 /// A stored version of a file (GET /files/{id}/versions).
